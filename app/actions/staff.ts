@@ -1,5 +1,7 @@
 'use server'
 
+import { getCurrentUser } from '@/lib/auth-helpers'
+
 import { and, desc, eq, or } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -12,7 +14,8 @@ import { canAdvanceOrder } from '@/lib/order-transitions'
 import { isAdminRole, isStaffRole } from '@/lib/auth-helpers'
 
 export async function placeStaffOrder(input: unknown) {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const currentUser = await getCurrentUser()
+  const session = currentUser ? { user: currentUser } : null
   if (!session?.user)
     return {
       ok: false as const,
@@ -40,7 +43,8 @@ const staffSchema = z.object({
 })
 
 export async function createStaffAccount(input: unknown) {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const currentUser = await getCurrentUser()
+  const session = currentUser ? { user: currentUser } : null
   if (!session?.user || !isAdminRole(session.user.role))
     return { ok: false as const, message: 'Administrator access is required.' }
   const parsed = staffSchema.safeParse(input)
@@ -107,7 +111,8 @@ export async function createStaffAccount(input: unknown) {
 const customerAccountSchema = z.object({ userId: z.string().min(1).max(100) })
 
 export async function getPendingCustomerAccounts() {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const currentUser = await getCurrentUser()
+  const session = currentUser ? { user: currentUser } : null
   if (!session?.user || !isAdminRole(session.user.role)) return []
   return db
     .select({
@@ -129,7 +134,8 @@ export async function getPendingCustomerAccounts() {
 }
 
 export async function approveCustomerAccount(input: unknown) {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const currentUser = await getCurrentUser()
+  const session = currentUser ? { user: currentUser } : null
   if (!session?.user || !isAdminRole(session.user.role))
     return { ok: false as const, message: 'Administrator access is required.' }
   const parsed = customerAccountSchema.safeParse(input)
@@ -177,7 +183,8 @@ const statusSchema = z.object({
   ]),
 })
 export async function updateOrderStatus(input: unknown) {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const currentUser = await getCurrentUser()
+  const session = currentUser ? { user: currentUser } : null
   if (!session?.user || !isStaffRole(session.user.role))
     return { ok: false as const, message: 'Staff access is required.' }
   const parsed = statusSchema.safeParse(input)
@@ -232,7 +239,8 @@ export async function updateOrderStatus(input: unknown) {
 }
 
 export async function getOperationsOrders() {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const currentUser = await getCurrentUser()
+  const session = currentUser ? { user: currentUser } : null
   if (!session?.user || !isStaffRole(session.user.role)) return []
   return db
     .select({
@@ -251,7 +259,8 @@ export async function getOperationsOrders() {
 }
 
 export async function getOrderLines(orderId: string) {
-  const session = await auth.api.getSession({ headers: await headers() })
+  const currentUser = await getCurrentUser()
+  const session = currentUser ? { user: currentUser } : null
   if (!session?.user || !isStaffRole(session.user.role)) return []
   return db
     .select({

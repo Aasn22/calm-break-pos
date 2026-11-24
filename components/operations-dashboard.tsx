@@ -1,5 +1,7 @@
 'use client'
 
+import { AccountManager } from '@/components/account-manager'
+import type { ManagedAccount } from '@/lib/admin-accounts'
 import { CalmBrand } from '@/components/calm-brand'
 import {
   ClipboardList,
@@ -65,11 +67,18 @@ export function OperationsDashboard({
   products,
   staff,
   pendingCustomers,
+  managedAccounts,
 }: {
-  operator: { name: string; role: string; employeeId?: string | null }
+  operator: {
+    id: string
+    name: string
+    role: string
+    employeeId?: string | null
+  }
   orders: Order[]
   products: Product[]
   staff: Staff[]
+  managedAccounts: ManagedAccount[]
   pendingCustomers: PendingCustomer[]
 }) {
   const router = useRouter()
@@ -202,7 +211,9 @@ export function OperationsDashboard({
                   ? 'Order monitor'
                   : item === 'inventory'
                     ? 'Inventory'
-                    : 'Team accounts'}
+                    : operator.role === 'admin'
+                      ? 'People & access'
+                      : 'Team accounts'}
               <span>
                 {item === 'terminal'
                   ? ''
@@ -230,7 +241,9 @@ export function OperationsDashboard({
                     ? 'Order monitor'
                     : section === 'inventory'
                       ? 'Inventory'
-                      : 'Team accounts'}
+                      : operator.role === 'admin'
+                        ? 'People & access'
+                        : 'Team accounts'}
               </h1>
               <p>
                 {section === 'terminal'
@@ -413,7 +426,10 @@ export function OperationsDashboard({
               )}
             </div>
           )}
-          {section === 'team' && canManage && (
+          {section === 'team' && operator.role === 'admin' && (
+            <AccountManager accounts={managedAccounts} actorId={operator.id} />
+          )}
+          {section === 'team' && canManage && operator.role !== 'admin' && (
             <>
               <div className="ops-card">
                 <div className="ops-card-heading">
