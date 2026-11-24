@@ -3,20 +3,21 @@ import { auth } from '../lib/auth'
 import { db, pool, WORKSPACE_ID } from '../lib/db'
 import { products, user } from '../lib/db/schema'
 
-const managerName = process.env.MANAGER_NAME?.trim()
-const managerEmail = process.env.MANAGER_EMAIL?.trim().toLowerCase()
-const managerPassword = process.env.MANAGER_PASSWORD
+const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase()
+const adminUsername = adminEmail?.split('@')[0].replace(/[^a-z0-9._-]/g, '').slice(0, 32)
+const adminName = process.env.ADMIN_NAME?.trim() || adminEmail?.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+const adminPassword = process.env.ADMIN_PASSWORD
 
 if (!process.env.DATABASE_URL || !process.env.BETTER_AUTH_SECRET) {
   throw new Error('DATABASE_URL and BETTER_AUTH_SECRET are required for setup.')
 }
-if (!managerName || !managerEmail || !managerPassword || managerPassword.length < 12 || managerPassword.length > 128) {
-  throw new Error('Set MANAGER_NAME, MANAGER_EMAIL, and a unique MANAGER_PASSWORD (12–128 characters) in your trusted local environment.')
+if (!adminName || !adminEmail || !adminUsername || !/^[a-z0-9][a-z0-9._-]{2,31}$/.test(adminUsername) || !adminPassword || adminPassword.length < 12 || adminPassword.length > 128) {
+  throw new Error('Set ADMIN_EMAIL and an ADMIN_PASSWORD (12–128 characters). ADMIN_NAME is optional and defaults from the email address.')
 }
 
-delete process.env.MANAGER_NAME
-delete process.env.MANAGER_EMAIL
-delete process.env.MANAGER_PASSWORD
+delete process.env.ADMIN_NAME
+delete process.env.ADMIN_EMAIL
+delete process.env.ADMIN_PASSWORD
 
 const starterCatalog = [
   { sku: 'CB-COF-001', name: 'Cappuccino', category: 'Coffee', segment: 'cafe', price: '4.50', description: 'Espresso · steamed milk', prepMinutes: 4 },
@@ -30,30 +31,37 @@ const starterCatalog = [
 ]
 
 async function setup() {
-try {
-  const [existing] = await db.select({ id: user.id, role: user.role }).from(user).where(eq(user.email, managerEmail!)).limit(1)
-  let managerId = existing?.id
-  if (existing) {
-    if (existing.role !== 'manager') throw new Error('That email already belongs to an account; no password or role was changed. Use a new manager email.')
-    console.info('Manager account already exists; its password and role were left unchanged.')
-  } else {
-    const created = await auth.api.signUpEmail({ body: { name: managerName!, email: managerEmail!, password: managerPassword! } })
-    managerId = created.user.id
-    await db.update(user).set({ role: 'manager', workspaceId: WORKSPACE_ID }).where(and(eq(user.id, managerId), eq(user.role, 'customer')))
-    console.info('Initial manager account created.')
-  }
+  try {
+    const [existing] = await db.select({ id: user.id, role: user.role }).from(user).where(eq(user.email, adminEmail!)).limit(1)
+    let adminId = existing?.id
+    if (existing) {
+      if (!['admin', 'manager'].includes(existing.role)) throw new Error('That email already belongs to a non-administrator account; no password or role was changed.')
+      const [usernameOwner] = await db.select({ id: user.id }).from(user).where(eq(user.username, adminUsername!)).limit(1)
+      if (usernameOwner && usernameOwner.id !== existing.id) throw new Error('The administrator username derived from the email is already in use.')
+      await db.update(user).set({ role: 'admin', username: adminUsername!, workspaceId: WORKSPACE_ID, isApproved: true, emailVerified: true, updatedAt: new Date() }).where(eq(user.id, existing.id))
+      console.info('Administrator account already exists; its password was left unchanged.')
+    } else {
+      const created = await auth.api.signUpEmail({ body: { name: adminName!, email: adminEmail!, password: adminPassword! } })
+      adminId = created.user.id
+      const [updated] = await db.update(user).set({ role: 'admin', username: adminUsername!, workspaceId: WORKSPACE_ID, isApproved: true, emailVerified: true, updatedAt: new Date() })
+        .where(and(eq(user.id, adminId), eq(user.role, 'customer'))).returning({ id: user.id })
+      if (!updated) throw new Error('Administrator role could not be assigned.')
+      console.info('Initial administrator account created.')
+    }
 
-  const rows = starterCatalog.map((item) => ({
-    id: crypto.randomUUID(), workspaceId: WORKSPACE_ID, userId: managerId!,
-    name: item.name, description: item.description, sku: item.sku, segment: item.segment,
-    category: item.category, price: item.price, stock: item.stock ?? 0,
-    lowStockAt: item.sku === 'CB-TKS-002' ? 8 : 5, prepMinutes: item.prepMinutes ?? 0,
-  }))
-  await db.insert(products).values(rows).onConflictDoNothing()
-  console.info('Starter catalog is ready. Review prices, preparation times, stock thresholds, and items in Operations.')
-} finally {
-  await pool.end()
-}
+    if (process.env.SEED_STARTER_CATALOG === 'true') {
+      const rows = starterCatalog.map((item) => ({
+        id: crypto.randomUUID(), workspaceId: WORKSPACE_ID, userId: adminId!,
+        name: item.name, description: item.description, sku: item.sku, segment: item.segment,
+        category: item.category, price: item.price, stock: item.stock ?? 0,
+        lowStockAt: item.sku === 'CB-TKS-002' ? 8 : 5, prepMinutes: item.prepMinutes ?? 0,
+      }))
+      await db.insert(products).values(rows).onConflictDoNothing()
+      console.info('Starter catalog is ready. Review prices, preparation times, stock thresholds, and items in Operations.')
+    }
+  } finally {
+    await pool.end()
+  }
 }
 
 void setup().catch(() => {

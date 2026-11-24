@@ -1,13 +1,19 @@
-import { boolean, bigserial, index, integer, jsonb, numeric, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { boolean, bigserial, check, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(), name: text('name').notNull(), email: text('email').notNull().unique(),
   emailVerified: boolean('emailVerified').notNull().default(false), image: text('image'),
   createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
   role: text('role').notNull().default('customer'), workspaceId: text('workspaceId').notNull().default('calm-break-main'),
-  employeeId: text('employeeId').unique(), creditLimit: numeric('creditLimit', { precision: 12, scale: 2 }).notNull().default('0'),
+  employeeId: text('employeeId').unique(), username: text('username'), isApproved: boolean('isApproved').notNull().default(true),
+  approvedAt: timestamp('approvedAt'), approvedBy: text('approvedBy'), creditLimit: numeric('creditLimit', { precision: 12, scale: 2 }).notNull().default('0'),
   monthlyDeductionLimit: numeric('monthlyDeductionLimit', { precision: 12, scale: 2 }).notNull().default('0'),
-})
+}, (table) => [
+  uniqueIndex('user_username_key').on(table.username).where(sql`${table.username} is not null`),
+  check('user_role_check', sql`${table.role} in ('customer', 'admin', 'cashier', 'shopkeeper', 'chef', 'order_taker', 'barista', 'kitchen', 'manager')`),
+  check('user_username_format_check', sql`${table.username} is null or ${table.username} ~ '^[a-z0-9][a-z0-9._-]{2,31}$'`),
+])
 export const session = pgTable('session', {
   id: text('id').primaryKey(), expiresAt: timestamp('expiresAt').notNull(), token: text('token').notNull().unique(),
   createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),

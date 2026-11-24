@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db, WORKSPACE_ID } from '@/lib/db'
 import { ledgerEntries, orderItems, orders, products, user } from '@/lib/db/schema'
+import { isAdminRole } from '@/lib/auth-helpers'
 
 const checkoutSchema = z.object({
   lines: z.array(z.object({ productId: z.string().min(1).max(100), quantity: z.number().int().min(1).max(20) })).min(1).max(30),
@@ -20,6 +21,9 @@ const checkoutSchema = z.object({
 export async function placeOrder(input: unknown) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user || session.user.role !== 'customer') return { ok: false as const, message: 'Sign in with a customer account to place an order.' }
+  const [customer] = await db.select({ isApproved: user.isApproved }).from(user)
+    .where(and(eq(user.id, session.user.id), eq(user.workspaceId, WORKSPACE_ID), eq(user.role, 'customer'))).limit(1)
+  if (!customer?.isApproved) return { ok: false as const, message: 'Your account must be approved by an administrator before ordering.' }
   const parsed = checkoutSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, message: 'Review your order details and try again.' }
 
@@ -68,13 +72,16 @@ export async function placeOrder(input: unknown) {
 export async function getCustomerOrders() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user || session.user.role !== 'customer') return []
+  const [customer] = await db.select({ isApproved: user.isApproved }).from(user)
+    .where(and(eq(user.id, session.user.id), eq(user.workspaceId, WORKSPACE_ID), eq(user.role, 'customer'))).limit(1)
+  if (!customer?.isApproved) return []
   return db.select({ id: orders.id, orderNumber: orders.orderNumber, status: orders.status, total: orders.total, createdAt: orders.createdAt })
     .from(orders).where(and(eq(orders.workspaceId, WORKSPACE_ID), eq(orders.customerUserId, session.user.id))).orderBy(orders.createdAt)
 }
 
 export async function getStaffAccounts() {
   const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user || session.user.role !== 'manager') return []
-  return db.select({ id: user.id, name: user.name, email: user.email, role: user.role, employeeId: user.employeeId, creditLimit: user.creditLimit, monthlyDeductionLimit: user.monthlyDeductionLimit })
-    .from(user).where(and(eq(user.workspaceId, WORKSPACE_ID), inArray(user.role, ['cashier', 'barista', 'kitchen', 'manager'])))
+  if (!session?.user || !isAdminRole(session.user.role)) return []
+  return db.select({ id: user.id, name: user.name, username: user.username, role: user.role, employeeId: user.employeeId, creditLimit: user.creditLimit, monthlyDeductionLimit: user.monthlyDeductionLimit })
+    .from(user).where(and(eq(user.workspaceId, WORKSPACE_ID), inArray(user.role, ['admin', 'cashier', 'shopkeeper', 'chef', 'order_taker', 'barista', 'kitchen', 'manager'])))
 }

@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth'
+import { nextCookies } from 'better-auth/next-js'
 import { pool } from '@/lib/db'
 
 const baseURL = process.env.BETTER_AUTH_URL ??
@@ -8,12 +9,14 @@ const baseURL = process.env.BETTER_AUTH_URL ??
 export const auth = betterAuth({
   database: pool,
   baseURL,
-  emailAndPassword: { enabled: true, autoSignIn: true, minPasswordLength: 12, maxPasswordLength: 128 },
+  emailAndPassword: { enabled: true, autoSignIn: false, minPasswordLength: 12, maxPasswordLength: 128 },
   user: {
     additionalFields: {
       role: { type: 'string', required: true, defaultValue: 'customer', input: false },
       workspaceId: { type: 'string', required: true, defaultValue: 'calm-break-main', input: false },
       employeeId: { type: 'string', required: false, input: false },
+      username: { type: 'string', required: false, input: false },
+      isApproved: { type: 'boolean', required: true, defaultValue: true, input: false },
       creditLimit: { type: 'number', required: true, defaultValue: 0, input: false },
       monthlyDeductionLimit: { type: 'number', required: true, defaultValue: 0, input: false },
     },
@@ -34,12 +37,13 @@ export const auth = betterAuth({
     ] : []),
   ],
   session: { expiresIn: 60 * 60 * 12, updateAge: 60 * 60 },
-  advanced: {
-    defaultCookieAttributes: {
-      sameSite: process.env.NODE_ENV === 'development' ? 'none' : 'strict',
-      secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'development',
-      httpOnly: true,
-      path: '/',
+  ...(process.env.NODE_ENV === 'development' ? {
+    advanced: {
+      defaultCookieAttributes: {
+        sameSite: 'none' as const,
+        secure: true,
+      },
     },
-  },
+  } : {}),
+  plugins: [nextCookies()],
 })

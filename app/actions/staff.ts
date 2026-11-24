@@ -1,6 +1,6 @@
 'use server'
 
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -8,18 +8,19 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db, WORKSPACE_ID } from '@/lib/db'
 import { ledgerEntries, orderItems, orders, products, user } from '@/lib/db/schema'
+import { isAdminRole, isStaffRole } from '@/lib/auth-helpers'
 
 const staffOrderSchema = z.object({
   lines: z.array(z.object({ productId: z.string().min(1).max(100), quantity: z.number().int().min(1).max(20) })).min(1).max(30),
   paymentMethod: z.enum(['cash', 'bank_transfer', 'credit', 'salary_deduction']),
-  accountEmail: z.string().trim().email().max(254).optional().or(z.literal('')),
+  accountIdentifier: z.string().trim().max(254).optional().or(z.literal('')),
   paymentReference: z.string().trim().max(120).optional(),
   orderType: z.enum(['dine_in', 'takeaway', 'staff_delivery']).default('dine_in'),
 })
 
 export async function placeStaffOrder(input: unknown) {
   const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user || !['cashier', 'manager'].includes(session.user.role)) return { ok: false as const, message: 'Cashier or manager access is required.' }
+  if (!session?.user || !['admin', 'manager', 'cashier', 'shopkeeper', 'order_taker'].includes(session.user.role)) return { ok: false as const, message: 'POS terminal access is required.' }
   const parsed = staffOrderSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, message: 'Review the order details and try again.' }
   const quantities = new Map<string, number>()
@@ -27,8 +28,8 @@ export async function placeStaffOrder(input: unknown) {
   if ([...quantities.values()].some((quantity) => quantity > 20)) return { ok: false as const, message: 'The limit is 20 of each item per order.' }
   const ids = [...quantities.keys()].sort()
   const method = parsed.data.paymentMethod
-  const accountEmail = parsed.data.accountEmail?.toLowerCase()
-  if ((method === 'credit' || method === 'salary_deduction') && !accountEmail) return { ok: false as const, message: 'Enter the staff account email for this payment method.' }
+  const accountIdentifier = parsed.data.accountIdentifier?.trim()
+  if ((method === 'credit' || method === 'salary_deduction') && !accountIdentifier) return { ok: false as const, message: 'Enter the staff username or employee ID for this payment method.' }
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -44,8 +45,12 @@ export async function placeStaffOrder(input: unknown) {
       })
       const total = Math.round(subtotal * 100) / 100
       let account: typeof user.$inferSelect | undefined
-      if (accountEmail) {
-        account = (await tx.select().from(user).where(and(eq(user.workspaceId, WORKSPACE_ID), eq(user.email, accountEmail))).limit(1).for('update'))[0]
+      if ((method === 'credit' || method === 'salary_deduction') && accountIdentifier) {
+        const normalizedIdentifier = accountIdentifier.toLowerCase()
+        account = (await tx.select().from(user).where(and(
+          eq(user.workspaceId, WORKSPACE_ID),
+          or(eq(user.username, normalizedIdentifier), eq(user.employeeId, accountIdentifier.toUpperCase()), eq(user.email, normalizedIdentifier)),
+        )).limit(1).for('update'))[0]
         if (!account) throw new Error('Account not found')
       }
       if ((method === 'credit' || method === 'salary_deduction') && (!account || account.role === 'customer')) throw new Error('Staff account required')
@@ -87,43 +92,81 @@ export async function placeStaffOrder(input: unknown) {
 }
 
 const staffSchema = z.object({
-  name: z.string().trim().min(2).max(100), email: z.string().trim().email().max(254),
-  password: z.string().min(12).max(128), employeeId: z.string().trim().min(2).max(32).regex(/^[A-Za-z0-9-]+$/),
-  role: z.enum(['cashier', 'barista', 'kitchen', 'manager']), creditLimit: z.number().min(0).max(100000), monthlyDeductionLimit: z.number().min(0).max(100000),
+  name: z.string().trim().min(2).max(100),
+  username: z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9._-]{2,31}$/),
+  password: z.string().min(12).max(128),
+  role: z.enum(['cashier', 'shopkeeper', 'chef', 'order_taker']),
+  creditLimit: z.number().min(0).max(100000),
+  monthlyDeductionLimit: z.number().min(0).max(100000),
 })
 
 export async function createStaffAccount(input: unknown) {
   const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user || session.user.role !== 'manager') return { ok: false as const, message: 'Manager access is required.' }
+  if (!session?.user || !isAdminRole(session.user.role)) return { ok: false as const, message: 'Administrator access is required.' }
   const parsed = staffSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, message: 'Review the account details and try again.' }
   const values = parsed.data
-  const existing = await db.select({ id: user.id }).from(user).where(eq(user.email, values.email.toLowerCase())).limit(1)
-  if (existing.length) return { ok: false as const, message: 'That email is already in use.' }
+  const internalEmail = `${values.username}@staff.calm-break.invalid`
+  const existing = await db.select({ id: user.id }).from(user).where(or(eq(user.username, values.username), eq(user.email, internalEmail))).limit(1)
+  if (existing.length) return { ok: false as const, message: 'That username is already in use.' }
   try {
-    const created = await auth.api.signUpEmail({ body: { name: values.name, email: values.email.toLowerCase(), password: values.password } })
+    const created = await auth.api.signUpEmail({ body: { name: values.name, email: internalEmail, password: values.password } })
     if (!created.user?.id) return { ok: false as const, message: 'Could not create the account. Try again.' }
-    const updated = await db.update(user).set({ role: values.role, workspaceId: WORKSPACE_ID, employeeId: values.employeeId, creditLimit: values.creditLimit.toFixed(2), monthlyDeductionLimit: values.monthlyDeductionLimit.toFixed(2) })
-      .where(and(eq(user.id, created.user.id), eq(user.role, 'customer'))).returning({ id: user.id })
+    const updated = await db.update(user).set({
+      role: values.role,
+      workspaceId: WORKSPACE_ID,
+      username: values.username,
+      employeeId: null,
+      emailVerified: true,
+      isApproved: true,
+      creditLimit: values.creditLimit.toFixed(2),
+      monthlyDeductionLimit: values.monthlyDeductionLimit.toFixed(2),
+      updatedAt: new Date(),
+    }).where(and(eq(user.id, created.user.id), eq(user.role, 'customer'))).returning({ id: user.id })
     if (!updated.length) return { ok: false as const, message: 'Could not finish the account setup.' }
     revalidatePath('/operations/workspace')
     return { ok: true as const }
   } catch {
-    return { ok: false as const, message: 'Could not create the account. Check whether the email or employee ID is already assigned.' }
+    return { ok: false as const, message: 'Could not create the account. Check the username and try again.' }
   }
+}
+
+const customerAccountSchema = z.object({ userId: z.string().min(1).max(100) })
+
+export async function getPendingCustomerAccounts() {
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user || !isAdminRole(session.user.role)) return []
+  return db.select({ id: user.id, name: user.name, employeeId: user.employeeId, createdAt: user.createdAt }).from(user)
+    .where(and(eq(user.workspaceId, WORKSPACE_ID), eq(user.role, 'customer'), eq(user.isApproved, false)))
+    .orderBy(desc(user.createdAt)).limit(100)
+}
+
+export async function approveCustomerAccount(input: unknown) {
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user || !isAdminRole(session.user.role)) return { ok: false as const, message: 'Administrator access is required.' }
+  const parsed = customerAccountSchema.safeParse(input)
+  if (!parsed.success) return { ok: false as const, message: 'That customer account could not be approved.' }
+  const approvedAt = new Date()
+  const [updated] = await db.update(user).set({ isApproved: true, approvedAt, approvedBy: session.user.id, updatedAt: approvedAt })
+    .where(and(eq(user.id, parsed.data.userId), eq(user.workspaceId, WORKSPACE_ID), eq(user.role, 'customer'), eq(user.isApproved, false)))
+    .returning({ id: user.id })
+  if (!updated) return { ok: false as const, message: 'That customer account is no longer awaiting approval.' }
+  revalidatePath('/operations/workspace')
+  revalidatePath('/')
+  return { ok: true as const }
 }
 
 const statusSchema = z.object({ orderId: z.string().uuid(), status: z.enum(['preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']) })
 export async function updateOrderStatus(input: unknown) {
   const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user || !['cashier', 'barista', 'kitchen', 'manager'].includes(session.user.role)) return { ok: false as const, message: 'Staff access is required.' }
+  if (!session?.user || !isStaffRole(session.user.role)) return { ok: false as const, message: 'Staff access is required.' }
   const parsed = statusSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, message: 'Invalid order update.' }
   const [current] = await db.select({ status: orders.status }).from(orders).where(and(eq(orders.id, parsed.data.orderId), eq(orders.workspaceId, WORKSPACE_ID))).limit(1)
   const transitions: Record<string, string[]> = {
     new: ['preparing', 'cancelled'], preparing: ['ready', 'cancelled'], ready: ['out_for_delivery', 'completed', 'cancelled'], out_for_delivery: ['completed'],
   }
-  const allowedTargets = session.user.role === 'barista' ? ['preparing', 'ready'] : transitions[current?.status ?? ''] ?? []
+  const allowedTargets = ['chef', 'barista', 'kitchen'].includes(session.user.role) ? ['preparing', 'ready'] : transitions[current?.status ?? ''] ?? []
   if (!current || !allowedTargets.includes(parsed.data.status)) return { ok: false as const, message: 'That order status cannot be changed by your account.' }
   const timestamp = new Date()
   await db.update(orders).set({
@@ -139,14 +182,14 @@ export async function updateOrderStatus(input: unknown) {
 
 export async function getOperationsOrders() {
   const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user || !['cashier', 'barista', 'kitchen', 'manager'].includes(session.user.role)) return []
+  if (!session?.user || !isStaffRole(session.user.role)) return []
   return db.select({ id: orders.id, orderNumber: orders.orderNumber, status: orders.status, segment: orders.segment, paymentMethod: orders.paymentMethod, total: orders.total, createdAt: orders.createdAt })
     .from(orders).where(eq(orders.workspaceId, WORKSPACE_ID)).orderBy(desc(orders.createdAt)).limit(50)
 }
 
 export async function getOrderLines(orderId: string) {
   const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user || !['cashier', 'barista', 'kitchen', 'manager'].includes(session.user.role)) return []
+  if (!session?.user || !isStaffRole(session.user.role)) return []
   return db.select({ productName: orderItems.productName, quantity: orderItems.quantity, unitPrice: orderItems.unitPrice })
     .from(orderItems).where(and(eq(orderItems.orderId, orderId), eq(orderItems.workspaceId, WORKSPACE_ID)))
 }

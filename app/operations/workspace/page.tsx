@@ -1,10 +1,10 @@
 import { asc, eq } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import { getStaffAccounts } from '@/app/actions/orders'
-import { getOperationsOrders } from '@/app/actions/staff'
+import { getOperationsOrders, getPendingCustomerAccounts } from '@/app/actions/staff'
 import { OperationsDashboard } from '@/components/operations-dashboard'
 import { DatabaseSetupNotice } from '@/components/database-setup-notice'
-import { getCurrentUser, isStaffRole } from '@/lib/auth-helpers'
+import { getCurrentUser, isAdminRole, isStaffRole } from '@/lib/auth-helpers'
 import { db, WORKSPACE_ID } from '@/lib/db'
 import { products } from '@/lib/db/schema'
 
@@ -21,13 +21,14 @@ export default async function OperationsWorkspacePage() {
   if (!currentUser) redirect('/operations')
   if (!isStaffRole(currentUser.role)) redirect('/')
   try {
-    const [catalog, orders, staff] = await Promise.all([
+    const [catalog, orders, staff, pendingCustomers] = await Promise.all([
       db.select({ id: products.id, name: products.name, sku: products.sku, category: products.category, segment: products.segment, price: products.price, stock: products.stock, lowStockAt: products.lowStockAt, prepMinutes: products.prepMinutes, available: products.available })
         .from(products).where(eq(products.workspaceId, WORKSPACE_ID)).orderBy(asc(products.category), asc(products.name)),
       getOperationsOrders(),
-      currentUser.role === 'manager' ? getStaffAccounts() : Promise.resolve([]),
+      isAdminRole(currentUser.role) ? getStaffAccounts() : Promise.resolve([]),
+      isAdminRole(currentUser.role) ? getPendingCustomerAccounts() : Promise.resolve([]),
     ])
-    return <OperationsDashboard operator={{ name: currentUser.name, role: currentUser.role, employeeId: currentUser.employeeId }} orders={orders} products={catalog} staff={staff} />
+    return <OperationsDashboard operator={{ name: currentUser.name, role: currentUser.role, employeeId: currentUser.employeeId }} orders={orders} products={catalog} staff={staff} pendingCustomers={pendingCustomers} />
   } catch {
     return <DatabaseSetupNotice portal="operations" />
   }

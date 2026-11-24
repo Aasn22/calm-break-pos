@@ -2,7 +2,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 
-export type AppRole = 'customer' | 'cashier' | 'barista' | 'kitchen' | 'manager'
+export type AppRole = 'customer' | 'admin' | 'cashier' | 'shopkeeper' | 'chef' | 'order_taker' | 'barista' | 'kitchen' | 'manager'
 
 export async function getCurrentUser() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -16,6 +16,10 @@ export async function requireRoles(roles: AppRole[]) {
   return currentUser
 }
 
+export function isAdminRole(role: string): boolean {
+  return role === 'admin' || role === 'manager'
+}
+
 export function isStaffRole(role: string): role is Exclude<AppRole, 'customer'> {
-  return role === 'cashier' || role === 'barista' || role === 'kitchen' || role === 'manager'
+  return role !== 'customer' && ['admin', 'cashier', 'shopkeeper', 'chef', 'order_taker', 'barista', 'kitchen', 'manager'].includes(role)
 }
