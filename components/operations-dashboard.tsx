@@ -7,8 +7,10 @@ import {
   UsersRound,
   LayoutDashboard,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { authClient } from '@/lib/auth-client'
+import { SignOutButton } from '@/components/sign-out-button'
+import { runClientAction } from '@/lib/client-action'
 import {
   approveCustomerAccount,
   createStaffAccount,
@@ -70,6 +72,7 @@ export function OperationsDashboard({
   staff: Staff[]
   pendingCustomers: PendingCustomer[]
 }) {
+  const router = useRouter()
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const canManage = operator.role === 'admin' || operator.role === 'manager'
@@ -98,46 +101,56 @@ export function OperationsDashboard({
     status:
       'preparing' | 'ready' | 'out_for_delivery' | 'completed' | 'cancelled',
   ) {
-    setSaving(true)
-    const result = await updateOrderStatus({ orderId: order.id, status })
-    setSaving(false)
-    setMessage(
-      result.ok ? `Order #${order.orderNumber} updated.` : result.message,
+    if (saving) return
+    const result = await runClientAction(
+      () => updateOrderStatus({ orderId: order.id, status }),
+      { pending: setSaving, message: setMessage },
+      'The order update could not be confirmed. Refresh the board before retrying.',
     )
-    if (result.ok) location.reload()
+    if (result) {
+      setMessage(`Order #${order.orderNumber} updated.`)
+      router.refresh()
+    }
   }
 
   async function addStaff(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setSaving(true)
-    const result = await createStaffAccount({
-      name: staffName,
-      username: staffUsername,
-      password: staffPassword,
-      role: staffRole,
-      creditLimit: Number(creditLimit),
-      monthlyDeductionLimit: Number(deductionLimit),
-    })
-    setSaving(false)
-    setMessage(
-      result.ok
-        ? 'Staff account created. Share the temporary password through your secure credential process.'
-        : result.message,
+    if (saving) return
+    const result = await runClientAction(
+      () =>
+        createStaffAccount({
+          name: staffName,
+          username: staffUsername,
+          password: staffPassword,
+          role: staffRole,
+          creditLimit: Number(creditLimit),
+          monthlyDeductionLimit: Number(deductionLimit),
+        }),
+      { pending: setSaving, message: setMessage },
+      'The account request failed. Refresh the account directory before trying again.',
     )
-    if (result.ok) {
+    if (result) {
+      setMessage(
+        'Staff account created. Share the temporary password through your secure credential process.',
+      )
       setStaffName('')
       setStaffUsername('')
       setStaffPassword('')
-      location.reload()
+      router.refresh()
     }
   }
 
   async function approveCustomer(userId: string) {
-    setSaving(true)
-    const result = await approveCustomerAccount({ userId })
-    setSaving(false)
-    setMessage(result.ok ? 'Customer account approved.' : result.message)
-    if (result.ok) location.reload()
+    if (saving) return
+    const result = await runClientAction(
+      () => approveCustomerAccount({ userId }),
+      { pending: setSaving, message: setMessage },
+      'The approval could not be confirmed. Refresh the account list before retrying.',
+    )
+    if (result) {
+      setMessage('Customer account approved.')
+      router.refresh()
+    }
   }
 
   return (
@@ -151,18 +164,7 @@ export function OperationsDashboard({
               {operator.role} · {operator.employeeId ?? 'Team workspace'}
             </small>
           </span>
-          <button
-            className="text-button"
-            onClick={() =>
-              void authClient.signOut({
-                fetchOptions: {
-                  onSuccess: () => location.assign('/operations'),
-                },
-              })
-            }
-          >
-            Sign out
-          </button>
+          <SignOutButton destination="/operations" />
         </div>
       </header>
       <div className="ops-layout">
@@ -240,6 +242,13 @@ export function OperationsDashboard({
                       : 'Provision accounts for the people who keep the shop running.'}
               </p>
             </div>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => router.refresh()}
+            >
+              Refresh workspace
+            </button>
             <div className="system-status">
               <i /> Database connected
             </div>

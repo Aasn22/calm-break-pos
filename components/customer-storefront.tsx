@@ -6,7 +6,8 @@ import { CalmBrand } from '@/components/calm-brand'
 import { ArrowDown, Coffee, Store, ShoppingBag, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { placeOrder } from '@/app/actions/orders'
-import { authClient } from '@/lib/auth-client'
+import { SignOutButton } from '@/components/sign-out-button'
+import { runClientAction } from '@/lib/client-action'
 
 type MenuProduct = {
   id: string
@@ -66,22 +67,22 @@ export function CustomerStorefront({
   )
 
   async function submitOrder() {
-    setBusy(true)
-    setNotice('')
-    const result = await placeOrder({
-      lines: selected.map((item) => ({
-        productId: item.id,
-        quantity: quantities[item.id],
-      })),
-      paymentMethod,
-      paymentReference: reference,
-      orderType: 'takeaway',
-    })
-    setBusy(false)
-    if (!result.ok) {
-      setNotice(result.message)
-      return
-    }
+    if (busy) return
+    const result = await runClientAction(
+      () =>
+        placeOrder({
+          lines: selected.map((item) => ({
+            productId: item.id,
+            quantity: quantities[item.id],
+          })),
+          paymentMethod,
+          paymentReference: reference,
+          orderType: 'takeaway',
+        }),
+      { pending: setBusy, message: setNotice },
+      'Could not confirm your order. Your basket is unchanged. Check recent orders before retrying.',
+    )
+    if (!result) return
     setNotice(`Order #${result.orderNumber} is in. We’ll take it from here.`)
     router.refresh()
     setQuantities({})
@@ -96,16 +97,7 @@ export function CustomerStorefront({
           {customerName ? (
             <>
               <span className="welcome-name">Hi, {customerName}</span>
-              <button
-                className="text-button"
-                onClick={() =>
-                  void authClient.signOut({
-                    fetchOptions: { onSuccess: () => location.assign('/') },
-                  })
-                }
-              >
-                Sign out
-              </button>
+              <SignOutButton destination="/" />
             </>
           ) : (
             <>
