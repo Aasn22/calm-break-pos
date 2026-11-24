@@ -7,7 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "db:setup": "tsx scripts/db-setup.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "db:setup": "tsx scripts/setup.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -27,6 +29,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.17",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^24",
     "@types/pg": "^8.23.1",
