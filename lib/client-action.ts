@@ -5,7 +5,7 @@ export async function runClientAction<T extends ActionResult>(
   action: () => Promise<T>,
   ui: { pending: (value: boolean) => void; message: (value: string) => void },
   failure: string,
-): Promise<T | null> {
+): Promise<Extract<T, { ok: true }> | null> {
   ui.pending(true)
   ui.message('')
   try {
@@ -14,7 +14,7 @@ export async function runClientAction<T extends ActionResult>(
       ui.message(result.message)
       return null
     }
-    return result
+    return result as Extract<T, { ok: true }>
   } catch {
     ui.message(failure)
     return null

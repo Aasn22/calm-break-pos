@@ -31,7 +31,7 @@ export const auth = betterAuth({
       isApproved: {
         type: 'boolean',
         required: true,
-        defaultValue: true,
+        defaultValue: false,
         input: false,
       },
       creditLimit: {
