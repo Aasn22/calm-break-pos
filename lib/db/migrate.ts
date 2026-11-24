@@ -69,6 +69,8 @@ export async function applyPortalSchema(client: MigrationClient) {
         )
       }
     }
+    if (tables.length !== 10)
+      throw new Error('Current schema baseline is incomplete.')
     // Verify every field actually used by the current application.
     for (const table of tables) {
       await client.query(

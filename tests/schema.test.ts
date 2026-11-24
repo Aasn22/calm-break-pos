@@ -25,29 +25,52 @@ test('current schema repairs missing tables, preserves legacy rows, and is repea
     // The exact query shapes that failed on the storefront and auth session path.
     assert.deepEqual(await orm.select().from(schema.products), [])
     assert.deepEqual(await orm.select().from(schema.session), [])
-    await orm
-      .insert(schema.user)
-      .values({
-        id: 'test-user',
-        name: 'Preserved',
-        email: 'preserved@example.test',
-        role: 'manager',
-        username: 'preserved',
-      })
-    await orm
-      .insert(schema.products)
-      .values({
-        id: 'test-item',
-        userId: 'test-user',
-        name: 'Tea',
-        sku: 'TEA',
-        segment: 'cafe',
-        category: 'Coffee',
-        price: '4.50',
-      })
+    await orm.insert(schema.user).values({
+      id: 'test-user',
+      name: 'Preserved',
+      email: 'preserved@example.test',
+      role: 'manager',
+      username: 'preserved',
+    })
+    await orm.insert(schema.products).values({
+      id: 'test-item',
+      userId: 'test-user',
+      name: 'Tea',
+      sku: 'TEA',
+      segment: 'cafe',
+      category: 'Coffee',
+      price: '4.50',
+    })
     assert.equal(await applyPortalSchema(db), 10)
     assert.equal((await orm.select().from(schema.products))[0].name, 'Tea')
     assert.equal((await orm.select().from(schema.user))[0].role, 'manager')
+    await orm
+      .insert(schema.orders)
+      .values({
+        id: 'first-order',
+        userId: 'test-user',
+        segment: 'cafe',
+        paymentMethod: 'cash',
+        subtotal: '4.50',
+        total: '4.50',
+      })
+    await applyPortalSchema(db)
+    await orm
+      .insert(schema.orders)
+      .values({
+        id: 'second-order',
+        userId: 'test-user',
+        segment: 'cafe',
+        paymentMethod: 'cash',
+        subtotal: '4.50',
+        total: '4.50',
+      })
+    assert.deepEqual(
+      (await orm.select().from(schema.orders))
+        .map((order) => order.orderNumber)
+        .sort(),
+      [1, 2],
+    )
     assert.equal(
       (
         await db.query<{ password_hash: string }>(
