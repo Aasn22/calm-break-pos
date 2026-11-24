@@ -1,5 +1,7 @@
 'use client'
 
+import { CatalogManager } from '@/components/catalog-manager'
+import type { CatalogItem } from '@/lib/catalog'
 import { AccountManager } from '@/components/account-manager'
 import type { ManagedAccount } from '@/lib/admin-accounts'
 import { CalmBrand } from '@/components/calm-brand'
@@ -29,18 +31,8 @@ type Order = {
   total: string
   createdAt: Date
 }
-type Product = {
-  id: string
-  name: string
-  sku: string
-  category: string
-  segment: string
-  price: string
-  stock: number
-  lowStockAt: number
-  prepMinutes: number
-  available: boolean
-}
+type Product = CatalogItem
+
 type Staff = {
   id: string
   name: string
@@ -383,48 +375,7 @@ export function OperationsDashboard({
             </>
           )}
           {section === 'inventory' && (
-            <div className="ops-card">
-              <div className="ops-card-heading">
-                <div>
-                  <h2>Live catalog</h2>
-                  <p>Prices and availability are read from the database.</p>
-                </div>
-              </div>
-              {products.length === 0 ? (
-                <div className="ops-empty">
-                  The catalog is empty. Add the starter menu through the
-                  database setup process.
-                </div>
-              ) : (
-                <div className="inventory-list">
-                  {products.map((product) => (
-                    <article className="inventory-row" key={product.id}>
-                      <div>
-                        <strong>{product.name}</strong>
-                        <span>
-                          {product.category} · SKU {product.sku} ·{' '}
-                          {product.segment === 'cafe' ? 'Café' : 'Tuck shop'}
-                        </span>
-                      </div>
-                      <strong>{money(product.price)}</strong>
-                      <span
-                        className={
-                          product.stock <= product.lowStockAt &&
-                          product.segment === 'tuck_shop'
-                            ? 'stock-alert'
-                            : ''
-                        }
-                      >
-                        {product.segment === 'tuck_shop'
-                          ? `${product.stock} in stock`
-                          : `${product.prepMinutes} min prep`}
-                      </span>
-                      <span>{product.available ? 'Available' : 'Paused'}</span>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
+            <CatalogManager items={products} canManage={canManage} />
           )}
           {section === 'team' && operator.role === 'admin' && (
             <AccountManager accounts={managedAccounts} actorId={operator.id} />
