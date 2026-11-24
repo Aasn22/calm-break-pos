@@ -64,15 +64,13 @@ async function fixture() {
   ])
   const hash = await hashPassword(password)
   for (const id of ['admin', 'manager', 'cashier', 'customer', 'outside'])
-    await db
-      .insert(schema.account)
-      .values({
-        id: `credential-${id}`,
-        accountId: id,
-        userId: id,
-        providerId: 'credential',
-        password: hash,
-      })
+    await db.insert(schema.account).values({
+      id: `credential-${id}`,
+      accountId: id,
+      userId: id,
+      providerId: 'credential',
+      password: hash,
+    })
   const draft = {
     name: 'Customer Updated',
     username: 'kv0001',
@@ -139,14 +137,12 @@ test('admin sees team AND customers while ordinary/manager/other workspace ident
 test('admin edits, approves, suspends, changes roles/limits and revokes sessions without deleting history', async () => {
   const f = await fixture()
   try {
-    await f.db
-      .insert(schema.session)
-      .values({
-        id: 's',
-        token: 'private-test-token',
-        userId: 'customer',
-        expiresAt: new Date(Date.now() + 60000),
-      })
+    await f.db.insert(schema.session).values({
+      id: 's',
+      token: 'private-test-token',
+      userId: 'customer',
+      expiresAt: new Date(Date.now() + 60000),
+    })
     await f.service.mutate(
       'admin',
       'edit',
@@ -162,17 +158,15 @@ test('admin edits, approves, suspends, changes roles/limits and revokes sessions
     assert.equal(customer.creditLimit, '25.00')
     assert.equal(customer.monthlyDeductionLimit, '50.00')
     assert.equal((await f.db.select().from(schema.session)).length, 0)
-    await f.db
-      .insert(schema.orders)
-      .values({
-        id: 'order-history',
-        userId: 'customer',
-        customerUserId: 'customer',
-        segment: 'cafe',
-        paymentMethod: 'cash',
-        subtotal: '5.00',
-        total: '5.00',
-      })
+    await f.db.insert(schema.orders).values({
+      id: 'order-history',
+      userId: 'customer',
+      customerUserId: 'customer',
+      segment: 'cafe',
+      paymentMethod: 'cash',
+      subtotal: '5.00',
+      total: '5.00',
+    })
     await f.service.mutate(
       'admin',
       'edit',
@@ -354,6 +348,36 @@ test('protect self and last admin, reject duplicates and weak passwords, allow e
       f.password,
     )
     assert.equal(selfChanged.selfChanged, true)
+  } finally {
+    await f.pg.close()
+  }
+})
+
+test('administrator reauthentication throttle persists and expires across requests', async () => {
+  const f = await fixture()
+  try {
+    const db = f.db as unknown as NodePgDatabase<typeof schema>
+    const { takeReauthenticationAttempt, clearReauthenticationAttempts } =
+      await import('../lib/server/reauth-throttle')
+    for (let i = 0; i < 10; i++)
+      assert.equal(await takeReauthenticationAttempt(db, 'admin'), true)
+    assert.equal(await takeReauthenticationAttempt(db, 'admin'), false)
+    assert.equal(await takeReauthenticationAttempt(db, 'manager'), true)
+    await f.db
+      .update(schema.verification)
+      .set({ expiresAt: new Date(Date.now() - 10000) })
+      .where(eq(schema.verification.id, 'admin-account-reauth:admin'))
+    assert.equal(await takeReauthenticationAttempt(db, 'admin'), true)
+    await clearReauthenticationAttempts(db, 'admin')
+    assert.equal(
+      (
+        await f.db
+          .select()
+          .from(schema.verification)
+          .where(eq(schema.verification.id, 'admin-account-reauth:admin'))
+      ).length,
+      0,
+    )
   } finally {
     await f.pg.close()
   }
