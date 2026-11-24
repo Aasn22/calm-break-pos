@@ -44,6 +44,8 @@ export default async function OperationsWorkspacePage() {
           .select({
             id: products.id,
             name: products.name,
+            description: products.description,
+            updatedAt: products.updatedAt,
             sku: products.sku,
             category: products.category,
             segment: products.segment,

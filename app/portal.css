@@ -1621,3 +1621,15 @@
     min-height: 42px;
   }
 }
+.catalog-description {
+  grid-column: 1/-1;
+}
+.catalog-description textarea {
+  background: var(--cb-input);
+  color: var(--cb-text);
+  border-color: var(--cb-border);
+  min-height: 95px;
+}
+.catalog-editor-form {
+  display: block;
+}
