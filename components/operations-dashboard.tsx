@@ -1,5 +1,17 @@
 'use client'
 
+import Link from 'next/link'
+import { AdminOverview } from '@/components/admin-overview'
+import { PurchasingManager } from '@/components/purchasing-manager'
+import { LoyaltyManager } from '@/components/loyalty-manager'
+import {
+  allowedSection,
+  sectionPath,
+  sectionTitles,
+  type OperationsSection,
+  type PurchaseView,
+  type LoyaltyView,
+} from '@/lib/operations-modules'
 import { CatalogManager } from '@/components/catalog-manager'
 import type { CatalogItem } from '@/lib/catalog'
 import { AccountManager } from '@/components/account-manager'
@@ -60,6 +72,9 @@ export function OperationsDashboard({
   staff,
   pendingCustomers,
   managedAccounts,
+  initialSection,
+  purchaseData,
+  loyaltyData,
 }: {
   operator: {
     id: string
@@ -70,6 +85,9 @@ export function OperationsDashboard({
   orders: Order[]
   products: Product[]
   staff: Staff[]
+  initialSection: OperationsSection
+  purchaseData: PurchaseView[]
+  loyaltyData: LoyaltyView | null
   managedAccounts: ManagedAccount[]
   pendingCustomers: PendingCustomer[]
 }) {
@@ -80,9 +98,7 @@ export function OperationsDashboard({
   const canUseTerminal =
     canManage ||
     ['cashier', 'shopkeeper', 'order_taker'].includes(operator.role)
-  const [section, setSection] = useState<
-    'terminal' | 'orders' | 'inventory' | 'team'
-  >(canUseTerminal ? 'terminal' : 'orders')
+  const section = initialSection
   const [staffName, setStaffName] = useState('')
   const [staffUsername, setStaffUsername] = useState('')
   const [staffPassword, setStaffPassword] = useState('')
@@ -173,50 +189,42 @@ export function OperationsDashboard({
           <div className="auth-kicker">WORKSPACE</div>
           {(
             [
-              ...(canUseTerminal ? (['terminal'] as const) : []),
+              'admin',
+              'terminal',
               'orders',
+              'purchasing',
               'inventory',
-              ...(canManage ? (['team'] as const) : []),
-            ] as const
-          ).map((item) => (
-            <button
-              key={item}
-              onClick={() => setSection(item)}
-              className={
-                section === item ? 'ops-nav-item selected' : 'ops-nav-item'
-              }
-            >
-              <span className="ops-nav-icon">
-                {item === 'terminal' ? (
-                  <LayoutDashboard size={17} />
-                ) : item === 'orders' ? (
-                  <ClipboardList size={17} />
-                ) : item === 'inventory' ? (
-                  <Package size={17} />
-                ) : (
-                  <UsersRound size={17} />
-                )}
-              </span>
-              {item === 'terminal'
-                ? 'POS terminal'
-                : item === 'orders'
-                  ? 'Order monitor'
-                  : item === 'inventory'
-                    ? 'Inventory'
-                    : operator.role === 'admin'
-                      ? 'People & access'
-                      : 'Team accounts'}
-              <span>
-                {item === 'terminal'
-                  ? ''
-                  : item === 'orders'
-                    ? pending.length
-                    : item === 'inventory'
-                      ? lowStock.length
-                      : pendingCustomers.length || staff.length}
-              </span>
-            </button>
-          ))}
+              'customers',
+              'loyalty',
+              'team',
+            ] as OperationsSection[]
+          )
+            .filter((item) => allowedSection(operator.role, item))
+            .map((item) => (
+              <Link
+                key={item}
+                href={sectionPath(item)}
+                className={
+                  section === item ? 'ops-nav-item selected' : 'ops-nav-item'
+                }
+                aria-current={section === item ? 'page' : undefined}
+              >
+                <span className="ops-nav-icon">
+                  {item === 'inventory' || item === 'purchasing' ? (
+                    <Package size={17} />
+                  ) : item === 'team' || item === 'customers' ? (
+                    <UsersRound size={17} />
+                  ) : item === 'orders' ? (
+                    <ClipboardList size={17} />
+                  ) : (
+                    <LayoutDashboard size={17} />
+                  )}
+                </span>
+                {sectionTitles[item]}
+                {item === 'orders' && <span>{pending.length}</span>}
+                {item === 'inventory' && <span>{lowStock.length}</span>}
+              </Link>
+            ))}
           <div className="ops-nav-note">
             One workspace
             <br />· secure staff access
@@ -226,25 +234,19 @@ export function OperationsDashboard({
           <div className="ops-title-row">
             <div>
               <span className="auth-kicker">MAIN CAMPUS · LIVE</span>
-              <h1>
-                {section === 'terminal'
-                  ? 'POS terminal'
-                  : section === 'orders'
-                    ? 'Order monitor'
-                    : section === 'inventory'
-                      ? 'Inventory'
-                      : operator.role === 'admin'
-                        ? 'People & access'
-                        : 'Team accounts'}
-              </h1>
+              <h1>{sectionTitles[section]}</h1>
               <p>
-                {section === 'terminal'
-                  ? 'Build a counter order with live menu prices and stock.'
-                  : section === 'orders'
-                    ? 'Keep every order moving, from first pour to pickup.'
-                    : section === 'inventory'
-                      ? 'A clear view of what is on hand and what needs attention.'
-                      : 'Provision accounts for the people who keep the shop running.'}
+                {section === 'purchasing'
+                  ? 'Supplier orders, receiving and stock updates.'
+                  : section === 'customers'
+                    ? 'Manage customer identities, approval and access.'
+                    : section === 'admin'
+                      ? 'One place to manage your café, shop and people.'
+                      : section === 'loyalty'
+                        ? 'Earning rules, customer points and rewards.'
+                        : section === 'inventory'
+                          ? 'Set up products and manage stock in one workspace.'
+                          : 'Your Calm Break operations workspace.'}
               </p>
             </div>
             <button
@@ -262,6 +264,38 @@ export function OperationsDashboard({
             <p className="order-notice" role="status">
               {message}
             </p>
+          )}
+          {section === 'admin' && operator.role === 'admin' && (
+            <AdminOverview
+              stats={{
+                products: products.length,
+                lowStock: lowStock.length,
+                openOrders: pending.length,
+                pendingCustomers: pendingCustomers.length,
+                accounts: managedAccounts.length,
+              }}
+            />
+          )}
+          {section === 'purchasing' && canManage && (
+            <PurchasingManager items={products} purchases={purchaseData} />
+          )}
+          {section === 'loyalty' &&
+            canManage &&
+            (loyaltyData ? (
+              <LoyaltyManager view={loyaltyData} />
+            ) : (
+              <p className="ops-empty">
+                Loyalty is not ready in this environment. Apply the loyalty
+                database migration before using this page.
+              </p>
+            ))}
+          {section === 'customers' && operator.role === 'admin' && (
+            <AccountManager
+              key="customers"
+              accounts={managedAccounts}
+              actorId={operator.id}
+              initialFilter="customers"
+            />
           )}
           {section === 'terminal' && canUseTerminal && (
             <StaffTerminal products={products} />
@@ -378,7 +412,12 @@ export function OperationsDashboard({
             <CatalogManager items={products} canManage={canManage} />
           )}
           {section === 'team' && operator.role === 'admin' && (
-            <AccountManager accounts={managedAccounts} actorId={operator.id} />
+            <AccountManager
+              key="team"
+              accounts={managedAccounts}
+              actorId={operator.id}
+              initialFilter="team"
+            />
           )}
           {section === 'team' && canManage && operator.role !== 'admin' && (
             <>

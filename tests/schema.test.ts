@@ -20,7 +20,7 @@ test('current schema repairs missing tables, preserves legacy rows, and is repea
       () => db.query('SELECT name FROM products'),
       /does not exist/,
     )
-    assert.equal(await applyPortalSchema(db), 10)
+    assert.equal(await applyPortalSchema(db), 12)
     const orm = drizzle(db, { schema })
     // The exact query shapes that failed on the storefront and auth session path.
     assert.deepEqual(await orm.select().from(schema.products), [])
@@ -41,30 +41,26 @@ test('current schema repairs missing tables, preserves legacy rows, and is repea
       category: 'Coffee',
       price: '4.50',
     })
-    assert.equal(await applyPortalSchema(db), 10)
+    assert.equal(await applyPortalSchema(db), 12)
     assert.equal((await orm.select().from(schema.products))[0].name, 'Tea')
     assert.equal((await orm.select().from(schema.user))[0].role, 'manager')
-    await orm
-      .insert(schema.orders)
-      .values({
-        id: 'first-order',
-        userId: 'test-user',
-        segment: 'cafe',
-        paymentMethod: 'cash',
-        subtotal: '4.50',
-        total: '4.50',
-      })
+    await orm.insert(schema.orders).values({
+      id: 'first-order',
+      userId: 'test-user',
+      segment: 'cafe',
+      paymentMethod: 'cash',
+      subtotal: '4.50',
+      total: '4.50',
+    })
     await applyPortalSchema(db)
-    await orm
-      .insert(schema.orders)
-      .values({
-        id: 'second-order',
-        userId: 'test-user',
-        segment: 'cafe',
-        paymentMethod: 'cash',
-        subtotal: '4.50',
-        total: '4.50',
-      })
+    await orm.insert(schema.orders).values({
+      id: 'second-order',
+      userId: 'test-user',
+      segment: 'cafe',
+      paymentMethod: 'cash',
+      subtotal: '4.50',
+      total: '4.50',
+    })
     assert.deepEqual(
       (await orm.select().from(schema.orders))
         .map((order) => order.orderNumber)

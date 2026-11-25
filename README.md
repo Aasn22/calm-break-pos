@@ -88,3 +88,22 @@ Paused products disappear from customer ordering and cannot be sold at POS. Pric
 ### Current delivery gaps
 
 This application has undergone a replacement of its original prototype. The active version still does not implement every requirement described earlier in this README: per-item delivery deadlines/completion, allergy profiles and order warning propagation, automatic manager escalations, full customer bill settlement, and automatic cross-device syncing require separate implementation/revalidation against the active schema. Do not interpret legacy prototype tests or a READY build as proof those features work in the current UI. Existing account management and current counter/catalog services have focused tests; deployed signed-in end-to-end flows need a dedicated test account. No automatic PR merge workflow has been configured by Agent.
+
+## Operations modules (route-based)
+
+The sidebar now opens real URLs, preserving browser back/forward and refresh:
+
+- `/operations/admin`: admin overview with current counters and links to each module.
+- `/operations/customers`: dedicated customer directory, approval/suspension, edits and resets (admin only).
+- `/operations/team`: team/access management (admin; existing manager subset retained).
+- `/operations/purchasing`: supplier purchase orders and complete-order receiving/cancellation (admin/manager).
+- `/operations/loyalty`: loyalty settings, member balances, explicit completed-order point awards and reward redemption (admin/manager).
+- `/operations/inventory`: café/shop management with summary counts, low-stock/paused filters and table/card views.
+- `/operations/orders` and `/operations/terminal`: order monitor and counter terminal. `/operations/workspace` opens the admin dashboard for admins and the appropriate working page for other roles.
+- `/loyalty`: approved customer-only points wallet and redemption history. The customer storefront links to it without exposing operations navigation.
+
+Purchasing records supplier, reference, products, quantities and unit costs. Creation is idempotent for a form submission key and does **not** add stock. Receiving locks the purchase and product rows; shop quantities increase exactly once, café purchasing is recorded without tracking ingredient stock. Only fully outstanding purchases can be received or cancelled. Partial receipts, supplier master records, payment/accounts payable and invoice uploads are not included. Preserve the existing purchases and items; no history is deleted.
+
+Loyalty requires the additive `0001_loyalty_program.sql` migration (run by `pnpm db:migrate` together with the original baseline; repeated application is safe). No program is enabled automatically. Managers explicitly set points per dollar, reward points and reward description. Each completed customer-linked order can earn once; earning is a deliberate manager action, not proof of payment. Rewards subtract points under a locked customer balance and create an immutable history record with a reference. They represent café-fulfilled entitlements, not automatic POS discounts or cash. Managers confirm physical handover with Mark reward fulfilled, which appends a zero-point fulfilment entry exactly once; customer history shows whether handover is pending or complete. Customer redemptions affect only their own wallet; managers can redeem for customers. Rule changes affect future entries only; prior entries are unchanged. There is no email, automatic redemption fulfilment or cancellation reversal integration. Do not award unpaid orders or cancel/refund an awarded order without reconciliation.
+
+Preview and Production require separate migrations on their own databases. No default customer, manager, balance or reward is seeded by deploying. Public preview verification cannot establish signed-in module behavior without an application test account. The original item-level delivery/allergy/escalation requirements remain distinct unfinished scope, not part of this module release.

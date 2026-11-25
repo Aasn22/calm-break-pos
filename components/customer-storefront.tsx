@@ -97,6 +97,9 @@ export function CustomerStorefront({
           {customerName ? (
             <>
               <span className="welcome-name">Hi, {customerName}</span>
+              <Link href="/loyalty" className="text-button">
+                My rewards
+              </Link>
               <SignOutButton destination="/" />
             </>
           ) : (

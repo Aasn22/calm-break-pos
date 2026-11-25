@@ -27,14 +27,16 @@ const blank: Draft = {
 export function AccountManager({
   accounts,
   actorId,
+  initialFilter = 'team',
 }: {
   accounts: ManagedAccount[]
+  initialFilter?: 'team' | 'customers'
   actorId: string
 }) {
   const dialog = useRef<HTMLElement>(null)
   const restoreFocus = useRef<HTMLElement | null>(null)
   const router = useRouter()
-  const [filter, setFilter] = useState('team'),
+  const [filter, setFilter] = useState(initialFilter as string),
     [search, setSearch] = useState('')
   const [selected, setSelected] = useState<ManagedAccount | null>(null),
     [mode, setMode] = useState<'edit' | 'reset' | 'create' | null>(null)
@@ -76,7 +78,9 @@ export function AccountManager({
             username: person.username || '',
             employeeId: person.employeeId || '',
           }
-        : blank,
+        : initialFilter === 'customers'
+          ? { ...blank, role: 'customer' }
+          : blank,
     )
   }
   function close() {
@@ -179,7 +183,11 @@ export function AccountManager({
       <div className="ops-card">
         <div className="ops-card-heading">
           <div>
-            <h2>People & access</h2>
+            <h2>
+              {initialFilter === 'customers'
+                ? 'Customer directory'
+                : 'Team & access'}
+            </h2>
             <p>
               Manage the team and customers. Changes require your administrator
               password.

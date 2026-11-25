@@ -10,10 +10,17 @@ export type MigrationClient = {
 // Generated from lib/db/schema.ts by drizzle-kit. The baseline is adopted
 // additively so a database provisioned by v0 can keep its existing rows.
 export async function applyPortalSchema(client: MigrationClient) {
-  const source = await readFile(
-    new URL('../../migrations/0000_current_portal_schema.sql', import.meta.url),
-    'utf8',
-  )
+  const source = (
+    await Promise.all(
+      ['0000_current_portal_schema.sql', '0001_loyalty_program.sql'].map(
+        (name) =>
+          readFile(
+            new URL(`../../migrations/${name}`, import.meta.url),
+            'utf8',
+          ),
+      ),
+    )
+  ).join('--> statement-breakpoint')
   await client.query('BEGIN')
   try {
     await client.query("SET LOCAL lock_timeout = '15s'")
@@ -69,7 +76,7 @@ export async function applyPortalSchema(client: MigrationClient) {
         )
       }
     }
-    if (tables.length !== 10)
+    if (tables.length !== 12)
       throw new Error('Current schema baseline is incomplete.')
     // Verify every field actually used by the current application.
     for (const table of tables) {
