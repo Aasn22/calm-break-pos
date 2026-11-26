@@ -1,3 +1,12 @@
+import { fulfilment } from '@/lib/server/fulfilment'
+import {
+  allowedSection,
+  operationsSections,
+  type OperationsSection,
+} from '@/lib/operations-modules'
+import { purchasing } from '@/lib/server/purchasing'
+import { loyalty } from '@/lib/server/loyalty'
+import { reportDatabaseFailure } from '@/lib/db/diagnostics'
 import { asc, eq } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import { getStaffAccounts } from '@/app/actions/orders'
@@ -14,7 +23,9 @@ import { products } from '@/lib/db/schema'
 
 export const dynamic = 'force-dynamic'
 
-export default async function OperationsWorkspacePage() {
+export default async function OperationsWorkspacePage({
+  searchParams,
+}: { searchParams?: Promise<{ section?: string }> } = {}) {
   if (!process.env.DATABASE_URL)
     return (
       <main className="setup-page">
@@ -37,6 +48,21 @@ export default async function OperationsWorkspacePage() {
   }
   if (!currentUser) redirect('/operations')
   if (!isStaffRole(currentUser.role)) redirect('/')
+  const requested = (await searchParams)?.section
+  const section: OperationsSection = operationsSections.includes(
+    requested as OperationsSection,
+  )
+    ? (requested as OperationsSection)
+    : currentUser.role === 'admin'
+      ? 'admin'
+      : ['manager', 'cashier', 'shopkeeper', 'order_taker'].includes(
+            currentUser.role,
+          )
+        ? 'terminal'
+        : 'orders'
+  if (!allowedSection(currentUser.role, section))
+    redirect('/operations/workspace')
+
   try {
     const [catalog, orders, staff, pendingCustomers, managedAccounts] =
       await Promise.all([
@@ -53,6 +79,7 @@ export default async function OperationsWorkspacePage() {
             stock: products.stock,
             lowStockAt: products.lowStockAt,
             prepMinutes: products.prepMinutes,
+            escalationMinutes: products.escalationMinutes,
             available: products.available,
           })
           .from(products)
@@ -69,8 +96,26 @@ export default async function OperationsWorkspacePage() {
           ? accountManagement(db).list(currentUser.id)
           : Promise.resolve([]),
       ])
+    const fulfilmentOrders =
+      section === 'orders' || isAdminRole(currentUser.role)
+        ? await fulfilment(db).list(currentUser.id)
+        : []
+    const purchaseData =
+      section === 'purchasing' ? await purchasing(db).list(currentUser.id) : []
+    let loyaltyData = null
+    if (section === 'loyalty') {
+      try {
+        loyaltyData = await loyalty(db).view(currentUser.id)
+      } catch (error) {
+        reportDatabaseFailure('loyalty-readiness', error)
+      }
+    }
     return (
       <OperationsDashboard
+        fulfilmentOrders={fulfilmentOrders}
+        initialSection={section}
+        purchaseData={purchaseData}
+        loyaltyData={loyaltyData}
         operator={{
           id: currentUser.id,
           name: currentUser.name,
@@ -84,7 +129,8 @@ export default async function OperationsWorkspacePage() {
         managedAccounts={managedAccounts}
       />
     )
-  } catch {
+  } catch (error) {
+    reportDatabaseFailure('operations-workspace', error)
     return <DatabaseSetupNotice portal="operations" />
   }
 }

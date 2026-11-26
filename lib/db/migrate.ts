@@ -10,10 +10,18 @@ export type MigrationClient = {
 // Generated from lib/db/schema.ts by drizzle-kit. The baseline is adopted
 // additively so a database provisioned by v0 can keep its existing rows.
 export async function applyPortalSchema(client: MigrationClient) {
-  const source = await readFile(
-    new URL('../../migrations/0000_current_portal_schema.sql', import.meta.url),
-    'utf8',
-  )
+  const source = (
+    await Promise.all(
+      [
+        '0000_current_portal_schema.sql',
+        '0001_loyalty_program.sql',
+        '0002_order_fulfilment.sql',
+        '0003_item_delivery.sql',
+      ].map((name) =>
+        readFile(new URL(`../../migrations/${name}`, import.meta.url), 'utf8'),
+      ),
+    )
+  ).join('--> statement-breakpoint')
   await client.query('BEGIN')
   try {
     await client.query("SET LOCAL lock_timeout = '15s'")
@@ -51,6 +59,12 @@ export async function applyPortalSchema(client: MigrationClient) {
       tables.push({ name: table[1], columns })
     }
     for (const statement of statements) {
+      if (/^ALTER TABLE "[a-z_]+" ADD COLUMN "/.test(statement)) {
+        await client.query(
+          statement.replace(' ADD COLUMN ', ' ADD COLUMN IF NOT EXISTS '),
+        )
+        continue
+      }
       const constraint = statement.match(
         /^ALTER TABLE "([a-z_]+)" ADD CONSTRAINT "([A-Za-z_]+)"/,
       )
@@ -69,12 +83,26 @@ export async function applyPortalSchema(client: MigrationClient) {
         )
       }
     }
-    if (tables.length !== 10)
+    if (tables.length !== 12)
       throw new Error('Current schema baseline is incomplete.')
     // Verify every field actually used by the current application.
     for (const table of tables) {
       await client.query(
         `SELECT ${table.columns.map((c) => `"${c}"`).join(',')} FROM "${table.name}" LIMIT 0`,
+      )
+    }
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS calm_schema_repairs (name text PRIMARY KEY)`,
+    )
+    const backfilled = await client.query(
+      `SELECT name FROM calm_schema_repairs WHERE name='item-default-snapshots-v1'`,
+    )
+    if (!backfilled.rows.length) {
+      await client.query(
+        `UPDATE order_items l SET segment=p.segment, minutes=p."prepMinutes", "escalationMinutes"=p."escalationMinutes" FROM products p WHERE l."productId"=p.id AND l."workspaceId"=p."workspaceId" AND l."dueAt" IS NULL AND l."deliveredAt" IS NULL`,
+      )
+      await client.query(
+        `INSERT INTO calm_schema_repairs(name) VALUES ('item-default-snapshots-v1')`,
       )
     }
     await client.query('COMMIT')

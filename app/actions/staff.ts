@@ -10,7 +10,6 @@ import { auth } from '@/lib/auth'
 import { db, WORKSPACE_ID } from '@/lib/db'
 import { orderItems, orders, user } from '@/lib/db/schema'
 import { createCounterOrder } from '@/lib/server/counter-orders'
-import { canAdvanceOrder } from '@/lib/order-transitions'
 import { isAdminRole, isStaffRole } from '@/lib/auth-helpers'
 
 export async function placeStaffOrder(input: unknown) {
@@ -172,70 +171,12 @@ export async function approveCustomerAccount(input: unknown) {
   return { ok: true as const }
 }
 
-const statusSchema = z.object({
-  orderId: z.string().uuid(),
-  status: z.enum([
-    'preparing',
-    'ready',
-    'out_for_delivery',
-    'completed',
-    'cancelled',
-  ]),
-})
-export async function updateOrderStatus(input: unknown) {
-  const currentUser = await getCurrentUser()
-  const session = currentUser ? { user: currentUser } : null
-  if (!session?.user || !isStaffRole(session.user.role))
-    return { ok: false as const, message: 'Staff access is required.' }
-  const parsed = statusSchema.safeParse(input)
-  if (!parsed.success)
-    return { ok: false as const, message: 'Invalid order update.' }
-  const [current] = await db
-    .select({ status: orders.status })
-    .from(orders)
-    .where(
-      and(
-        eq(orders.id, parsed.data.orderId),
-        eq(orders.workspaceId, WORKSPACE_ID),
-      ),
-    )
-    .limit(1)
-  if (
-    !current ||
-    !canAdvanceOrder(session.user.role, current.status, parsed.data.status)
-  )
-    return {
-      ok: false as const,
-      message: 'That order status cannot be changed by your account.',
-    }
-  const timestamp = new Date()
-  const changed = await db
-    .update(orders)
-    .set({
-      status: parsed.data.status,
-      ...(parsed.data.status === 'preparing'
-        ? { prepStartedAt: timestamp }
-        : {}),
-      ...(parsed.data.status === 'ready' ? { readyAt: timestamp } : {}),
-      ...(parsed.data.status === 'completed' ? { completedAt: timestamp } : {}),
-    })
-    .where(
-      and(
-        eq(orders.id, parsed.data.orderId),
-        eq(orders.workspaceId, WORKSPACE_ID),
-        eq(orders.status, current.status),
-      ),
-    )
-    .returning({ id: orders.id })
-  if (!changed.length)
-    return {
-      ok: false as const,
-      message:
-        'This order changed on another device. Refresh the board and try again.',
-    }
-  revalidatePath('/operations/workspace')
-  revalidatePath('/')
-  return { ok: true as const }
+export async function updateOrderStatus(_input: unknown) {
+  return {
+    ok: false as const,
+    message:
+      'Use the item-level order board to confirm timeframes and deliver each line. Direct completion is not permitted.',
+  }
 }
 
 export async function getOperationsOrders() {

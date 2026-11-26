@@ -8,6 +8,27 @@
       "when": 1795502994084,
       "tag": "0000_current_portal_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795568958325,
+      "tag": "0001_loyalty_program",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795674402216,
+      "tag": "0002_order_fulfilment",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795674413878,
+      "tag": "0003_item_delivery",
+      "breakpoints": true
     }
   ]
 }

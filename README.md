@@ -22,10 +22,10 @@ There was no database, authentication or environment configuration in the origin
 
    For an explicitly approved remote deployment, `CALM_BREAK_MIGRATE=true` in the **build environment** enables the same transactional migration before Next.js builds. It runs in the selected deployment environment, never on public requests. Migration failure fails the build. Ordinary builds do not migrate unless explicitly enabled. No administrator or known password is automatically created.
 
-3. Sign in at `/operations`. Review the starter catalog, prices, preparation times and escalation thresholds, and create the staff/operator accounts you need. Registered customers cannot grant themselves a staff or operations role. Provisioning passwords should be handed over through your organisation's secure credential process. Password reset and self-service password changes are not implemented yet; do not reuse credentials.
+3. Sign in at `/operations`. Review the starter catalog, prices, preparation times and escalation thresholds, and create the staff/operator accounts you need. Registered customers cannot grant themselves a staff or operations role. Provisioning passwords should be handed over through your organisation's secure credential process. Administrators can reset passwords in Team/Customers after reauthentication; self-service email recovery is not implemented. Do not reuse credentials.
 4. Review the preview and merge the PR to release through the project's GitHub deployment integration.
 
-Without a database, both portals display a setup message and refuse sign-in/checkout. Schema changes are explicit, never executed by public requests or silently against production during a preview build.
+Without a database, both portals display a setup message and refuse sign-in/checkout. Schema changes are explicit and run only with the approved migration flag; a preview build uses only its own database. Public requests never migrate.
 
 ## Two different domains
 
@@ -34,7 +34,7 @@ The code supports both same-project hostnames with strict host isolation. Assign
 - `CUSTOMER_HOST`: customer/staff ordering hostname.
 - `OPERATIONS_HOST`: private operations hostname.
 
-With both configured, the operations hostname's root opens operations sign-in. Customer hosts cannot access operations pages/APIs, and operations hosts cannot access customer pages/APIs. Unknown hostnames and partial/misconfigured host settings fail closed. Cookies are host-only, HTTP-only, Secure in production, SameSite=Strict and expire after 12 hours. All writes require a same-origin request. API role enforcement is independent of the hostname restriction.
+With both configured, the operations hostname's root opens operations sign-in. Customer hosts cannot access operations pages/APIs, and operations hosts cannot access customer pages/APIs. Unknown hostnames and partial/misconfigured host settings fail closed. Cookies are host-only, HTTP-only, Secure in production, SameSite=Strict and expire after 12 hours. All writes require a same-origin request. The operations host also allows the authenticated `/account` page and local logo assets. API role enforcement is independent of the hostname restriction.
 
 Until names are chosen and assigned, previews use `/` and `/operations` with separate, non-interchangeable authenticated roles. **Different paths are not different domains.** Do not configure production host restrictions on unrelated PR preview hosts; use separate preview environment configuration. `robots: noindex` on operations is not an access control; authentication is.
 
@@ -85,6 +85,40 @@ In Operations → Inventory, `admin` and `manager` accounts can add/edit product
 
 Paused products disappear from customer ordering and cannot be sold at POS. Price/default changes apply to future sales, not historical order lines. Existing items cannot switch between café/shop: pause the old one and create a new item. SKU uniqueness is enforced per workspace. Stock writes lock the same product rows as checkout, refuse negative stock and reject a stale expected quantity. Metadata edits reject a stale update timestamp. Refresh other open devices to load catalog changes; no real-time subscription is implemented. Physical stock adjustments are not yet a durable receipt/reconciliation ledger.
 
-### Current delivery gaps
+### Delivery implementation status
 
-This application has undergone a replacement of its original prototype. The active version still does not implement every requirement described earlier in this README: per-item delivery deadlines/completion, allergy profiles and order warning propagation, automatic manager escalations, full customer bill settlement, and automatic cross-device syncing require separate implementation/revalidation against the active schema. Do not interpret legacy prototype tests or a READY build as proof those features work in the current UI. Existing account management and current counter/catalog services have focused tests; deployed signed-in end-to-end flows need a dedicated test account. No automatic PR merge workflow has been configured by Agent.
+The current-schema workflow is described in **Current item fulfilment, safety profiles and bills** below. The preserved `cb_*` prototype is not the active app. Tests cover both systems explicitly; only the current-schema tests validate the active service. Signed-in deployment testing is still separate from passing unit/integration tests. No automatic PR merge workflow is available in this Agent session.
+
+## Operations modules (route-based)
+
+The sidebar now opens real URLs, preserving browser back/forward and refresh:
+
+- `/operations/admin`: admin overview with current counters and links to each module.
+- `/operations/customers`: dedicated customer directory, approval/suspension, edits and resets (admin only).
+- `/operations/team`: team/access management (admin; existing manager subset retained).
+- `/operations/purchasing`: supplier purchase orders and complete-order receiving/cancellation (admin/manager).
+- `/operations/loyalty`: loyalty settings, member balances, explicit completed-order point awards and reward redemption (admin/manager).
+- `/operations/inventory`: café/shop management with summary counts, low-stock/paused filters and table/card views.
+- `/operations/orders` and `/operations/terminal`: order monitor and counter terminal. `/operations/workspace` opens the admin dashboard for admins and the appropriate working page for other roles.
+- `/loyalty`: approved customer-only points wallet and redemption history. The customer storefront links to it without exposing operations navigation.
+
+Purchasing records supplier, reference, products, quantities and unit costs. Creation is idempotent for a form submission key and does **not** add stock. Receiving locks the purchase and product rows; shop quantities increase exactly once, café purchasing is recorded without tracking ingredient stock. Only fully outstanding purchases can be received or cancelled. Partial receipts, supplier master records, payment/accounts payable and invoice uploads are not included. Preserve the existing purchases and items; no history is deleted.
+
+Loyalty requires the additive `0001_loyalty_program.sql` migration (run by `pnpm db:migrate` together with the original baseline; repeated application is safe). No program is enabled automatically. Managers explicitly set points per dollar, reward points and reward description. Each completed customer-linked order can earn once; earning is a deliberate manager action, not proof of payment. Rewards subtract points under a locked customer balance and create an immutable history record with a reference. They represent café-fulfilled entitlements, not automatic POS discounts or cash. Managers confirm physical handover with Mark reward fulfilled, which appends a zero-point fulfilment entry exactly once; customer history shows whether handover is pending or complete. Customer redemptions affect only their own wallet; managers can redeem for customers. Rule changes affect future entries only; prior entries are unchanged. There is no email, automatic redemption fulfilment or cancellation reversal integration. Do not award unpaid orders or cancel/refund an awarded order without reconciliation.
+
+Preview and Production require separate migrations on their own databases. No default customer, manager, balance or reward is seeded by deploying. Public preview verification cannot establish signed-in module behavior without an application test account. The current-schema item delivery, profile/allergy and escalation workflow is included as described below.
+
+## Current item fulfilment, safety profiles and bills
+
+PR #9 additionally contains the remaining current-schema workflow (do not confuse it with the preserved `cb_*` prototype):
+
+- Every new customer/counter order snapshots the linked person's allergy note and each product's segment, preparation time and manager escalation grace. Counter sales may link an account with username/employee ID for cash or transfer as well as staff credit.
+- Operators confirm every line's timeframe before delivery. Due timestamps start at confirmation. Deliver lines separately; the order reaches `completed` only after every line is delivered. A line includes all units of that product, not a per-unit partial quantity. Version checks prevent stale updates overwriting other devices.
+- Managers see in-app warnings for orders not confirmed within the shortest line grace, or undelivered lines overdue by their configured grace. These are five-second refreshed board warnings, **not background email/SMS/push dispatch**. Keep the order board open for active monitoring.
+- `/account` provides the approved person's profile, allergy updates and their own linked orders/bills (latest 100). Operators see the immutable checkout allergy note alongside the current profile note. Severe allergies must still be discussed directly with the café; the application does not guarantee food safety.
+- Managers record manually received payments; no payment processor is connected. The order retains a paid timestamp and acting manager. Staff credit/salary ledger charges receive offset entries on settlement or permitted cancellation. Already delivered/paid orders cannot be cancelled through this flow; use manual reconciliation for refunds.
+- Only managers cancel unfulfilled/unpaid orders. Undelivered shop stock is restored once under locks. Cancellation does not remove order/bill history. Closed orders cannot be reopened by ordinary order actions.
+- Customer/counter checkout accepts a retry key to avoid double orders/stock deductions after transport uncertainty. Automatic cross-device updates use five-second `router.refresh()` while a page is visible and on focus; this is polling, not WebSocket realtime or an offline POS.
+- Two additive migrations (`0002_order_fulfilment.sql`, `0003_item_delivery.sql`) add profile/order/line fields. Existing line segment/defaults are adopted once from the corresponding product, tracked by a schema-repair marker. Historic orders' completion/payment timestamps are **not invented**; managers should reconcile older records explicitly. No existing allergy info can be recovered if it was never stored.
+
+Separate custom customer and operations hostnames are still not assigned: the user must choose two names they control. Same-domain routes remain role-protected; different paths do not count as separate domains. Auto-merge of GitHub PRs is not available/configured by this Agent session, and production release remains a distinct verified outcome.

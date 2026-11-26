@@ -23,6 +23,7 @@ const money = (value: number) =>
   )
 
 export function StaffTerminal({ products }: { products: Product[] }) {
+  const checkoutKey = useRef<string | null>(null)
   const router = useRouter()
   const inFlight = useRef(false)
   const [quantities, setQuantities] = useState<Record<string, number>>({})
@@ -50,12 +51,14 @@ export function StaffTerminal({ products }: { products: Product[] }) {
   )
 
   async function checkout() {
+    checkoutKey.current ??= crypto.randomUUID()
     if (inFlight.current || !selected.length) return
     inFlight.current = true
     try {
       const result = await runClientAction(
         () =>
           placeStaffOrder({
+            key: checkoutKey.current,
             lines: selected.map((product) => ({
               productId: product.id,
               quantity: quantities[product.id],
@@ -70,6 +73,7 @@ export function StaffTerminal({ products }: { products: Product[] }) {
       )
       if (!result) return
       setMessage(`Order #${result.orderNumber} sent to the order monitor.`)
+      checkoutKey.current = null
       setQuantities({})
       setAccountIdentifier('')
       setReference('')
@@ -214,29 +218,22 @@ export function StaffTerminal({ products }: { products: Product[] }) {
                 <option value="salary_deduction">Salary deduction</option>
               </select>
             </label>
-            {paymentMethod !== 'cash' && (
+            <label className="terminal-label">
+              Account username / employee ID (optional for cash/transfer)
+              <input
+                value={accountIdentifier}
+                onChange={(e) => setAccountIdentifier(e.target.value)}
+                placeholder="Username or KV0000"
+                maxLength={254}
+              />
+            </label>
+            {paymentMethod === 'bank_transfer' && (
               <label className="terminal-label">
-                {paymentMethod === 'bank_transfer'
-                  ? 'Transfer reference (optional)'
-                  : 'Staff username or employee ID'}
+                Transfer reference
                 <input
-                  value={
-                    paymentMethod === 'bank_transfer'
-                      ? reference
-                      : accountIdentifier
-                  }
-                  onChange={(event) =>
-                    paymentMethod === 'bank_transfer'
-                      ? setReference(event.target.value)
-                      : setAccountIdentifier(event.target.value)
-                  }
-                  type={'text'}
-                  placeholder={
-                    paymentMethod === 'bank_transfer'
-                      ? 'Reference'
-                      : 'Username or employee ID'
-                  }
-                  maxLength={254}
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  maxLength={120}
                 />
               </label>
             )}

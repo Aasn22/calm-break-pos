@@ -19,6 +19,8 @@ export function CatalogManager({
     [segment, setSegment] = useState('cafe'),
     [filter, setFilter] = useState('all'),
     [search, setSearch] = useState(''),
+    [stockFilter, setStockFilter] = useState('all'),
+    [view, setView] = useState('table'),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState('')
   function open(
@@ -59,6 +61,7 @@ export function CatalogManager({
             segment,
             price: Number(f.get('price')),
             prepMinutes: Number(f.get('prepMinutes')),
+            escalationMinutes: Number(f.get('escalationMinutes')),
             lowStockAt: Number(f.get('lowStockAt') || 0),
             stock: Number(f.get('stock') || 0),
             available: f.get('availability') === 'true',
@@ -92,12 +95,22 @@ export function CatalogManager({
   const shown = items.filter(
     (p) =>
       (filter === 'all' || p.segment === filter) &&
+      (stockFilter === 'all' ||
+        (stockFilter === 'low' &&
+          p.segment === 'tuck_shop' &&
+          p.stock <= p.lowStockAt) ||
+        (stockFilter === 'paused' && !p.available)) &&
       `${p.name} ${p.sku} ${p.category}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   )
   return (
-    <section aria-label="Café menu and shop inventory">
+    <section
+      aria-label="Café menu and shop inventory"
+      className={
+        view === 'table' ? 'inventory-table-view' : 'inventory-card-view'
+      }
+    >
       <div className="ops-card">
         <div className="ops-card-heading">
           <div>
@@ -117,6 +130,57 @@ export function CatalogManager({
               Add item
             </button>
           )}
+        </div>
+        <div className="catalog-summary">
+          <span>
+            <b>{items.filter((p) => p.segment === 'cafe').length}</b>Café items
+          </span>
+          <span>
+            <b>{items.filter((p) => p.segment === 'tuck_shop').length}</b>Shop
+            items
+          </span>
+          <span>
+            <b>
+              {
+                items.filter(
+                  (p) => p.segment === 'tuck_shop' && p.stock <= p.lowStockAt,
+                ).length
+              }
+            </b>
+            Low stock
+          </span>
+          <span>
+            <b>{items.filter((p) => !p.available).length}</b>Paused
+          </span>
+        </div>
+        <div className="module-toolbar">
+          <label>
+            Stock / availability
+            <select
+              value={stockFilter}
+              onChange={(e) => setStockFilter(e.target.value)}
+            >
+              <option value="all">All availability</option>
+              <option value="low">Low shop stock</option>
+              <option value="paused">Paused items</option>
+            </select>
+          </label>
+          <div className="inventory-view-controls">
+            <button
+              type="button"
+              className={`filter-chip ${view === 'table' ? 'is-active' : ''}`}
+              onClick={() => setView('table')}
+            >
+              Table
+            </button>
+            <button
+              type="button"
+              className={`filter-chip ${view === 'cards' ? 'is-active' : ''}`}
+              onClick={() => setView('cards')}
+            >
+              Cards
+            </button>
+          </div>
         </div>
         <div className="people-toolbar">
           <div
@@ -328,6 +392,17 @@ export function CatalogManager({
                       step="1"
                       required
                       defaultValue={selected?.prepMinutes ?? 0}
+                    />
+                  </label>
+                  <label>
+                    Manager escalation grace (minutes)
+                    <input
+                      name="escalationMinutes"
+                      type="number"
+                      min="1"
+                      max="1440"
+                      required
+                      defaultValue={selected?.escalationMinutes ?? 5}
                     />
                   </label>
                   {segment === 'tuck_shop' && (
