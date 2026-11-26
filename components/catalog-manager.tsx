@@ -61,6 +61,7 @@ export function CatalogManager({
             segment,
             price: Number(f.get('price')),
             prepMinutes: Number(f.get('prepMinutes')),
+            escalationMinutes: Number(f.get('escalationMinutes')),
             lowStockAt: Number(f.get('lowStockAt') || 0),
             stock: Number(f.get('stock') || 0),
             available: f.get('availability') === 'true',
@@ -391,6 +392,17 @@ export function CatalogManager({
                       step="1"
                       required
                       defaultValue={selected?.prepMinutes ?? 0}
+                    />
+                  </label>
+                  <label>
+                    Manager escalation grace (minutes)
+                    <input
+                      name="escalationMinutes"
+                      type="number"
+                      min="1"
+                      max="1440"
+                      required
+                      defaultValue={selected?.escalationMinutes ?? 5}
                     />
                   </label>
                   {segment === 'tuck_shop' && (

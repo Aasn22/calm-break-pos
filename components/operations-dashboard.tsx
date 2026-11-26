@@ -1,6 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { AutoRefresh } from '@/components/auto-refresh'
+import { FulfilmentBoard } from '@/components/fulfilment-board'
+import { overdue, type FulfilmentOrder } from '@/lib/fulfilment'
 import { AdminOverview } from '@/components/admin-overview'
 import { PurchasingManager } from '@/components/purchasing-manager'
 import { LoyaltyManager } from '@/components/loyalty-manager'
@@ -27,11 +30,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { SignOutButton } from '@/components/sign-out-button'
 import { runClientAction } from '@/lib/client-action'
-import {
-  approveCustomerAccount,
-  createStaffAccount,
-  updateOrderStatus,
-} from '@/app/actions/staff'
+import { approveCustomerAccount, createStaffAccount } from '@/app/actions/staff'
 import { StaffTerminal } from '@/components/staff-terminal'
 
 type Order = {
@@ -72,6 +71,7 @@ export function OperationsDashboard({
   staff,
   pendingCustomers,
   managedAccounts,
+  fulfilmentOrders,
   initialSection,
   purchaseData,
   loyaltyData,
@@ -85,6 +85,7 @@ export function OperationsDashboard({
   orders: Order[]
   products: Product[]
   staff: Staff[]
+  fulfilmentOrders: FulfilmentOrder[]
   initialSection: OperationsSection
   purchaseData: PurchaseView[]
   loyaltyData: LoyaltyView | null
@@ -112,23 +113,6 @@ export function OperationsDashboard({
     (product) =>
       product.segment === 'tuck_shop' && product.stock <= product.lowStockAt,
   )
-
-  async function advance(
-    order: Order,
-    status:
-      'preparing' | 'ready' | 'out_for_delivery' | 'completed' | 'cancelled',
-  ) {
-    if (saving) return
-    const result = await runClientAction(
-      () => updateOrderStatus({ orderId: order.id, status }),
-      { pending: setSaving, message: setMessage },
-      'The order update could not be confirmed. Refresh the board before retrying.',
-    )
-    if (result) {
-      setMessage(`Order #${order.orderNumber} updated.`)
-      router.refresh()
-    }
-  }
 
   async function addStaff(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -181,6 +165,9 @@ export function OperationsDashboard({
               {operator.role} · {operator.employeeId ?? 'Team workspace'}
             </small>
           </span>
+          <Link className="text-button" href="/account">
+            My account & bills
+          </Link>
           <SignOutButton destination="/operations" />
         </div>
       </header>
@@ -231,6 +218,7 @@ export function OperationsDashboard({
           </div>
         </aside>
         <section className="ops-content">
+          <AutoRefresh />
           <div className="ops-title-row">
             <div>
               <span className="auth-kicker">MAIN CAMPUS · LIVE</span>
@@ -265,6 +253,14 @@ export function OperationsDashboard({
               {message}
             </p>
           )}
+          {canManage &&
+            section !== 'orders' &&
+            fulfilmentOrders.some((o) => overdue(o).length > 0) && (
+              <Link className="escalation-notice" href="/operations/orders">
+                {fulfilmentOrders.filter((o) => overdue(o).length > 0).length}{' '}
+                orders need manager attention. Open order board →
+              </Link>
+            )}
           {section === 'admin' && operator.role === 'admin' && (
             <AdminOverview
               stats={{
@@ -301,112 +297,7 @@ export function OperationsDashboard({
             <StaffTerminal products={products} />
           )}
           {section === 'orders' && (
-            <>
-              <div className="ops-stats">
-                <article>
-                  <span>OPEN ORDERS</span>
-                  <strong>{pending.length}</strong>
-                </article>
-                <article>
-                  <span>MENU ITEMS</span>
-                  <strong>
-                    {products.filter((product) => product.available).length}
-                  </strong>
-                </article>
-                <article>
-                  <span>LOW STOCK</span>
-                  <strong>{lowStock.length}</strong>
-                </article>
-              </div>
-              <div className="ops-card">
-                <div className="ops-card-heading">
-                  <div>
-                    <h2>Recent orders</h2>
-                    <p>Newest orders appear first.</p>
-                  </div>
-                </div>
-                {orders.length === 0 ? (
-                  <div className="ops-empty">
-                    No orders yet. New customer orders will appear here.
-                  </div>
-                ) : (
-                  <div className="order-list">
-                    {orders.map((order) => (
-                      <article className="order-row" key={order.id}>
-                        <div className="order-no">
-                          <strong>#{order.orderNumber}</strong>
-                          <span>
-                            {order.segment === 'cafe' ? 'Café' : 'Tuck shop'} ·{' '}
-                            {new Date(order.createdAt).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className={`status-pill status-${order.status}`}>
-                          {order.status.replaceAll('_', ' ')}
-                        </div>
-                        <span className="order-payment">
-                          {order.paymentMethod.replaceAll('_', ' ')}
-                        </span>
-                        <strong>{money(order.total)}</strong>
-                        <div className="order-actions">
-                          {order.status === 'new' && (
-                            <button
-                              disabled={saving}
-                              onClick={() => advance(order, 'preparing')}
-                            >
-                              Start
-                            </button>
-                          )}
-                          {order.status === 'preparing' && (
-                            <button
-                              disabled={saving}
-                              onClick={() => advance(order, 'ready')}
-                            >
-                              Ready
-                            </button>
-                          )}
-                          {order.status === 'ready' && (
-                            <button
-                              disabled={saving}
-                              onClick={() =>
-                                advance(
-                                  order,
-                                  order.segment === 'tuck_shop'
-                                    ? 'out_for_delivery'
-                                    : 'completed',
-                                )
-                              }
-                            >
-                              {order.segment === 'tuck_shop'
-                                ? 'Dispatch'
-                                : 'Complete'}
-                            </button>
-                          )}
-                          {order.status === 'out_for_delivery' && (
-                            <button
-                              disabled={saving}
-                              onClick={() => advance(order, 'completed')}
-                            >
-                              Complete
-                            </button>
-                          )}
-                          {!['completed', 'cancelled'].includes(
-                            order.status,
-                          ) && (
-                            <button
-                              className="subtle-action"
-                              disabled={saving}
-                              onClick={() => advance(order, 'cancelled')}
-                            >
-                              Cancel
-                            </button>
-                          )}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
+            <FulfilmentBoard orders={fulfilmentOrders} role={operator.role} />
           )}
           {section === 'inventory' && (
             <CatalogManager items={products} canManage={canManage} />

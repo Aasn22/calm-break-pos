@@ -1,3 +1,4 @@
+import { fulfilment } from '@/lib/server/fulfilment'
 import {
   allowedSection,
   operationsSections,
@@ -78,6 +79,7 @@ export default async function OperationsWorkspacePage({
             stock: products.stock,
             lowStockAt: products.lowStockAt,
             prepMinutes: products.prepMinutes,
+            escalationMinutes: products.escalationMinutes,
             available: products.available,
           })
           .from(products)
@@ -94,6 +96,10 @@ export default async function OperationsWorkspacePage({
           ? accountManagement(db).list(currentUser.id)
           : Promise.resolve([]),
       ])
+    const fulfilmentOrders =
+      section === 'orders' || isAdminRole(currentUser.role)
+        ? await fulfilment(db).list(currentUser.id)
+        : []
     const purchaseData =
       section === 'purchasing' ? await purchasing(db).list(currentUser.id) : []
     let loyaltyData = null
@@ -106,6 +112,7 @@ export default async function OperationsWorkspacePage({
     }
     return (
       <OperationsDashboard
+        fulfilmentOrders={fulfilmentOrders}
         initialSection={section}
         purchaseData={purchaseData}
         loyaltyData={loyaltyData}

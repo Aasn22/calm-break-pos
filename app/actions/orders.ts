@@ -2,7 +2,7 @@
 
 import { getCurrentUser } from '@/lib/auth-helpers'
 
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
@@ -17,6 +17,7 @@ import {
 import { isAdminRole } from '@/lib/auth-helpers'
 
 const checkoutSchema = z.object({
+  key: z.string().uuid().optional(),
   lines: z
     .array(
       z.object({
@@ -71,6 +72,11 @@ export async function placeOrder(input: unknown) {
       message: 'Review your order details and try again.',
     }
 
+  if (
+    parsed.data.orderType === 'staff_delivery' &&
+    !parsed.data.deliveryLocation?.trim()
+  )
+    return { ok: false as const, message: 'Enter a delivery location.' }
   const quantities = new Map<string, number>()
   for (const line of parsed.data.lines)
     quantities.set(
@@ -91,8 +97,26 @@ export async function placeOrder(input: unknown) {
     }
 
   try {
-    const orderId = randomUUID()
+    const orderId = parsed.data.key || randomUUID()
     const result = await db.transaction(async (tx) => {
+      if (parsed.data.key) {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtext(${parsed.data.key}))`,
+        )
+        const [existing] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, parsed.data.key))
+        if (existing) {
+          if (
+            existing.userId !== session.user.id ||
+            existing.workspaceId !== WORKSPACE_ID
+          )
+            throw new Error('Invalid checkout key.')
+          return { id: existing.id, orderNumber: existing.orderNumber }
+        }
+      }
+
       const catalog = await tx
         .select()
         .from(products)
@@ -116,6 +140,10 @@ export async function placeOrder(input: unknown) {
         return { product, quantity, unitPrice }
       })
       const total = Math.round(subtotal * 100) / 100
+      const [allergyProfile] = await tx
+        .select({ allergies: user.allergies })
+        .from(user)
+        .where(eq(user.id, session.user.id))
       const [created] = await tx
         .insert(orders)
         .values({
@@ -126,6 +154,7 @@ export async function placeOrder(input: unknown) {
           segment: lines.every(({ product }) => product.segment === 'tuck_shop')
             ? 'tuck_shop'
             : 'cafe',
+          allergyNote: allergyProfile?.allergies || '',
           paymentMethod: method,
           paymentReference: parsed.data.paymentReference || null,
           deliveryLocation: parsed.data.deliveryLocation || null,
@@ -135,18 +164,19 @@ export async function placeOrder(input: unknown) {
         })
         .returning({ id: orders.id, orderNumber: orders.orderNumber })
       for (const { product, quantity, unitPrice } of lines) {
-        await tx
-          .insert(orderItems)
-          .values({
-            id: randomUUID(),
-            workspaceId: WORKSPACE_ID,
-            userId: session.user.id,
-            orderId,
-            productId: product.id,
-            productName: product.name,
-            quantity,
-            unitPrice: unitPrice.toFixed(2),
-          })
+        await tx.insert(orderItems).values({
+          id: randomUUID(),
+          workspaceId: WORKSPACE_ID,
+          userId: session.user.id,
+          orderId,
+          productId: product.id,
+          productName: product.name,
+          quantity,
+          unitPrice: unitPrice.toFixed(2),
+          segment: product.segment,
+          minutes: product.prepMinutes,
+          escalationMinutes: product.escalationMinutes,
+        })
         if (product.segment === 'tuck_shop')
           await tx
             .update(products)

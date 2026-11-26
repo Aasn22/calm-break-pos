@@ -54,16 +54,14 @@ export async function changeCatalog(
         throw new CatalogError(
           'That SKU already exists. Edit the existing item instead.',
         )
-      await tx
-        .insert(products)
-        .values({
-          ...d,
-          id: randomUUID(),
-          workspaceId: workspace,
-          userId: actor.id,
-          price: d.price.toFixed(2),
-          stock: d.segment === 'tuck_shop' ? d.stock : 0,
-        })
+      await tx.insert(products).values({
+        ...d,
+        id: randomUUID(),
+        workspaceId: workspace,
+        userId: actor.id,
+        price: d.price.toFixed(2),
+        stock: d.segment === 'tuck_shop' ? d.stock : 0,
+      })
       return
     }
     const id = (parsed.data as { id: string }).id
@@ -125,6 +123,7 @@ export async function changeCatalog(
         category: d.category,
         price: d.price.toFixed(2),
         prepMinutes: d.prepMinutes,
+        escalationMinutes: d.escalationMinutes,
         lowStockAt: d.lowStockAt,
         available: d.available,
         updatedAt: new Date(),

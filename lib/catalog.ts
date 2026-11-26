@@ -12,6 +12,7 @@ export const catalogFields = z.object({
   category: z.string().trim().min(1).max(80),
   segment: z.enum(['cafe', 'tuck_shop']),
   price: z.number().finite().positive().max(100000).multipleOf(0.01),
+  escalationMinutes: z.number().int().min(1).max(1440).default(5),
   prepMinutes: z.number().int().min(0).max(1440),
   lowStockAt: z.number().int().min(0).max(1000000),
   available: z.boolean(),
@@ -45,6 +46,7 @@ export type CatalogItem = {
   price: string
   stock: number
   lowStockAt: number
+  escalationMinutes: number
   prepMinutes: number
   available: boolean
   updatedAt: Date | string

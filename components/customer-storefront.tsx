@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { AutoRefresh } from '@/components/auto-refresh'
 import { CalmBrand } from '@/components/calm-brand'
 import { ArrowDown, Coffee, Store, ShoppingBag, Sparkles } from 'lucide-react'
 import Link from 'next/link'
@@ -40,6 +41,7 @@ export function CustomerStorefront({
   customerName?: string
   orders?: CustomerOrder[]
 }) {
+  const checkoutKey = useRef<string | null>(null)
   const router = useRouter()
   const [category, setCategory] = useState('All items')
   const [quantities, setQuantities] = useState<Record<string, number>>({})
@@ -47,6 +49,10 @@ export function CustomerStorefront({
     'cash',
   )
   const [reference, setReference] = useState('')
+  const [deliveryLocation, setDeliveryLocation] = useState('')
+  const [orderType, setOrderType] = useState<'takeaway' | 'staff_delivery'>(
+    'takeaway',
+  )
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const categories = [
@@ -67,17 +73,24 @@ export function CustomerStorefront({
   )
 
   async function submitOrder() {
+    checkoutKey.current ??= crypto.randomUUID()
     if (busy) return
+    if (orderType === 'staff_delivery' && !deliveryLocation.trim()) {
+      setNotice('Enter a delivery location.')
+      return
+    }
     const result = await runClientAction(
       () =>
         placeOrder({
+          key: checkoutKey.current,
           lines: selected.map((item) => ({
             productId: item.id,
             quantity: quantities[item.id],
           })),
           paymentMethod,
           paymentReference: reference,
-          orderType: 'takeaway',
+          orderType,
+          deliveryLocation,
         }),
       { pending: setBusy, message: setNotice },
       'Could not confirm your order. Your basket is unchanged. Check recent orders before retrying.',
@@ -85,18 +98,23 @@ export function CustomerStorefront({
     if (!result) return
     setNotice(`Order #${result.orderNumber} is in. We’ll take it from here.`)
     router.refresh()
+    checkoutKey.current = null
     setQuantities({})
     setReference('')
   }
 
   return (
     <main className="storefront">
+      <AutoRefresh />
       <header className="store-header">
         <CalmBrand />
         <div className="store-header-actions">
           {customerName ? (
             <>
               <span className="welcome-name">Hi, {customerName}</span>
+              <Link className="text-button" href="/account">
+                My account & bills
+              </Link>
               <Link href="/loyalty" className="text-button">
                 My rewards
               </Link>
@@ -276,6 +294,29 @@ export function CustomerStorefront({
             </h2>
           </div>
           <div className="checkout-controls">
+            <label>
+              Fulfilment
+              <select
+                value={orderType}
+                onChange={(e) =>
+                  setOrderType(e.target.value as 'takeaway' | 'staff_delivery')
+                }
+              >
+                <option value="takeaway">Collect at counter</option>
+                <option value="staff_delivery">Staff delivery</option>
+              </select>
+            </label>
+            {orderType === 'staff_delivery' && (
+              <label>
+                Delivery location
+                <input
+                  value={deliveryLocation}
+                  onChange={(e) => setDeliveryLocation(e.target.value)}
+                  maxLength={200}
+                  placeholder="Room / office / location"
+                />
+              </label>
+            )}
             <label>
               Payment
               <select

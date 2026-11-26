@@ -8,6 +8,7 @@ const { ledgerEntries, orderItems, orders, products, user } = schema
 const WORKSPACE_ID = 'calm-break-main'
 
 const staffOrderSchema = z.object({
+  key: z.string().uuid().optional(),
   lines: z
     .array(
       z.object({
@@ -75,6 +76,24 @@ export async function createCounterOrder(
 
   try {
     const result = await db.transaction(async (tx) => {
+      if (parsed.data.key) {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtext(${parsed.data.key}))`,
+        )
+        const [existing] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, parsed.data.key))
+        if (existing) {
+          if (
+            existing.userId !== operator.id ||
+            existing.workspaceId !== WORKSPACE_ID
+          )
+            throw new CounterOrderError('Invalid checkout key.')
+          return { orderNumber: existing.orderNumber }
+        }
+      }
+
       const catalog = await tx
         .select()
         .from(products)
@@ -104,10 +123,7 @@ export async function createCounterOrder(
       })
       const total = Math.round(subtotal * 100) / 100
       let account: typeof user.$inferSelect | undefined
-      if (
-        (method === 'credit' || method === 'salary_deduction') &&
-        accountIdentifier
-      ) {
+      if (accountIdentifier) {
         const normalizedIdentifier = accountIdentifier.toLowerCase()
         account = (
           await tx
@@ -126,7 +142,7 @@ export async function createCounterOrder(
             .limit(1)
             .for('update')
         )[0]
-        if (!account)
+        if (!account || !account.isApproved)
           throw new CounterOrderError(
             'The staff account could not be found. Check the username or employee ID.',
           )
@@ -181,7 +197,15 @@ export async function createCounterOrder(
             'This order would exceed the monthly salary deduction limit.',
           )
       }
-      const orderId = randomUUID()
+      const orderId = parsed.data.key || randomUUID()
+      const allergyProfile = account
+        ? (
+            await tx
+              .select({ allergies: user.allergies })
+              .from(user)
+              .where(eq(user.id, account.id))
+          )[0]
+        : null
       const [created] = await tx
         .insert(orders)
         .values({
@@ -192,6 +216,7 @@ export async function createCounterOrder(
           segment: lines.every(({ product }) => product.segment === 'tuck_shop')
             ? 'tuck_shop'
             : 'cafe',
+          allergyNote: allergyProfile?.allergies || '',
           paymentMethod: method,
           paymentReference: parsed.data.paymentReference || null,
           orderType: parsed.data.orderType,
@@ -200,18 +225,19 @@ export async function createCounterOrder(
         })
         .returning({ orderNumber: orders.orderNumber })
       for (const { product, quantity, unitPrice } of lines) {
-        await tx
-          .insert(orderItems)
-          .values({
-            id: randomUUID(),
-            workspaceId: WORKSPACE_ID,
-            userId: operator.id,
-            orderId,
-            productId: product.id,
-            productName: product.name,
-            quantity,
-            unitPrice: unitPrice.toFixed(2),
-          })
+        await tx.insert(orderItems).values({
+          id: randomUUID(),
+          workspaceId: WORKSPACE_ID,
+          userId: operator.id,
+          orderId,
+          productId: product.id,
+          productName: product.name,
+          quantity,
+          unitPrice: unitPrice.toFixed(2),
+          segment: product.segment,
+          minutes: product.prepMinutes,
+          escalationMinutes: product.escalationMinutes,
+        })
         if (product.segment === 'tuck_shop')
           await tx
             .update(products)
@@ -224,17 +250,15 @@ export async function createCounterOrder(
             )
       }
       if (account && (method === 'credit' || method === 'salary_deduction')) {
-        await tx
-          .insert(ledgerEntries)
-          .values({
-            id: randomUUID(),
-            workspaceId: WORKSPACE_ID,
-            userId: operator.id,
-            orderId,
-            accountUserId: account.id,
-            kind: method,
-            amount: total.toFixed(2),
-          })
+        await tx.insert(ledgerEntries).values({
+          id: randomUUID(),
+          workspaceId: WORKSPACE_ID,
+          userId: operator.id,
+          orderId,
+          accountUserId: account.id,
+          kind: method,
+          amount: total.toFixed(2),
+        })
       }
       return created
     })

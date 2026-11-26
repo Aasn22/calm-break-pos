@@ -1919,3 +1919,109 @@
     grid-template-columns: 1fr;
   }
 }
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.workflow-card {
+  border: 1px solid #d3b87c55;
+  background: var(--cb-surface);
+  border-radius: 10px;
+  padding: 22px;
+}
+.workflow-card header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.workflow-card h3 {
+  margin: 10px 0;
+  color: var(--cb-gold-light);
+  font-size: 18px;
+}
+.workflow-card small {
+  display: block;
+  font-size: 10px;
+  color: var(--cb-muted);
+  margin: 5px 0;
+}
+.workflow-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  border-top: 1px solid var(--cb-border);
+  padding: 15px 0;
+  font-size: 12px;
+}
+.workflow-line label {
+  width: 70px;
+  font-size: 10px;
+}
+.workflow-line input {
+  background: var(--cb-input);
+  color: var(--cb-text);
+  padding: 7px;
+}
+.workflow-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--cb-border);
+  padding: 18px 0;
+  font-size: 12px;
+}
+.workflow-card .people-actions {
+  margin-top: 15px;
+}
+.allergy-alert,
+.escalation-notice {
+  color: #ffdfa1;
+  background: #493b25;
+  border: 1px solid #bfa06b;
+  padding: 15px;
+  border-radius: 7px;
+  margin: 18px 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.allergy-alert p {
+  white-space: pre-wrap;
+}
+.workflow-overdue {
+  color: #ffc8ab;
+  font-size: 11px;
+  margin: 12px 0;
+}
+.profile-fields {
+  display: flex;
+  flex-direction: column;
+}
+.profile-fields textarea {
+  background: var(--cb-input);
+  color: var(--cb-text);
+  min-height: 100px;
+}
+.sync-label {
+  display: block;
+  font-size: 9px;
+  color: var(--cb-muted);
+  text-align: right;
+  margin: 5px 20px 15px;
+}
+@media (max-width: 800px) {
+  .workflow-grid {
+    grid-template-columns: 1fr;
+  }
+  .workflow-card {
+    padding: 16px;
+  }
+  .workflow-line {
+    flex-wrap: wrap;
+  }
+  .workflow-line button {
+    font-size: 10px;
+  }
+}

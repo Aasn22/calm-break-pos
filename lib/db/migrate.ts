@@ -12,12 +12,13 @@ export type MigrationClient = {
 export async function applyPortalSchema(client: MigrationClient) {
   const source = (
     await Promise.all(
-      ['0000_current_portal_schema.sql', '0001_loyalty_program.sql'].map(
-        (name) =>
-          readFile(
-            new URL(`../../migrations/${name}`, import.meta.url),
-            'utf8',
-          ),
+      [
+        '0000_current_portal_schema.sql',
+        '0001_loyalty_program.sql',
+        '0002_order_fulfilment.sql',
+        '0003_item_delivery.sql',
+      ].map((name) =>
+        readFile(new URL(`../../migrations/${name}`, import.meta.url), 'utf8'),
       ),
     )
   ).join('--> statement-breakpoint')
@@ -58,6 +59,12 @@ export async function applyPortalSchema(client: MigrationClient) {
       tables.push({ name: table[1], columns })
     }
     for (const statement of statements) {
+      if (/^ALTER TABLE "[a-z_]+" ADD COLUMN "/.test(statement)) {
+        await client.query(
+          statement.replace(' ADD COLUMN ', ' ADD COLUMN IF NOT EXISTS '),
+        )
+        continue
+      }
       const constraint = statement.match(
         /^ALTER TABLE "([a-z_]+)" ADD CONSTRAINT "([A-Za-z_]+)"/,
       )
@@ -82,6 +89,20 @@ export async function applyPortalSchema(client: MigrationClient) {
     for (const table of tables) {
       await client.query(
         `SELECT ${table.columns.map((c) => `"${c}"`).join(',')} FROM "${table.name}" LIMIT 0`,
+      )
+    }
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS calm_schema_repairs (name text PRIMARY KEY)`,
+    )
+    const backfilled = await client.query(
+      `SELECT name FROM calm_schema_repairs WHERE name='item-default-snapshots-v1'`,
+    )
+    if (!backfilled.rows.length) {
+      await client.query(
+        `UPDATE order_items l SET segment=p.segment, minutes=p."prepMinutes", "escalationMinutes"=p."escalationMinutes" FROM products p WHERE l."productId"=p.id AND l."workspaceId"=p."workspaceId" AND l."dueAt" IS NULL AND l."deliveredAt" IS NULL`,
+      )
+      await client.query(
+        `INSERT INTO calm_schema_repairs(name) VALUES ('item-default-snapshots-v1')`,
       )
     }
     await client.query('COMMIT')
